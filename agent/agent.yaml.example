@@ -1,0 +1,16 @@
+# UKey 代理配置模板
+# 正式安装时由 install-agent.ps1 生成到 C:\ProgramData\UKeyAgent\agent.yaml（仅 SYSTEM 与管理员可读）
+# 在 Ubuntu 上模拟代理时，复制为 agent/agent.yaml 并配合 --mock-manager 使用
+
+server_url: wss://10.70.1.63:8443/ws/agent
+api_url: https://10.70.1.63:8443
+server_ca_cert: null                  # 自签证书时填服务器证书路径；或预先把证书导入 Windows 受信任根证书
+enrollment_token: ""                  # 安装时填入；批准后被代理专属 token 替换并清空
+agent_token: ""                       # 服务器批准后自动写入
+
+manager:
+  exe_path: 'C:\Program Files\Digi\AnywhereUSBManager\awusbmanager.exe'
+  client_id: null                     # 留空：使用 Manager 已有的 Client ID，或按服务器规则 ukey-<主机名> 设置
+
+local_ui_port: 47800                  # agent.exe ui 使用的本机回环端口（仅 127.0.0.1）
+log_dir: 'C:\ProgramData\UKeyAgent\logs'

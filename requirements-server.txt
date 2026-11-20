@@ -1,0 +1,14 @@
+# UKey 管理服务器（Ubuntu 24.04，Python 3.12）
+fastapi>=0.110
+uvicorn[standard]>=0.29
+httpx>=0.27
+pydantic>=2.6
+ruamel.yaml>=0.18
+python-dotenv>=1.0
+itsdangerous>=2.1          # 控制台会话签名
+python-multipart>=0.0.9    # 表单（向导、登录）
+pywinrm>=0.4.3             # 方式 B 远程安装（可选）
+
+# 测试
+pytest>=8.0
+pytest-asyncio>=0.23

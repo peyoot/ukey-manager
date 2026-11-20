@@ -1,0 +1,18 @@
+# 密钥与本地数据
+.env
+certs/
+data/
+backups/
+dist/
+logs/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+*.spec
+
+# 代理本地配置（含 token）
+agent/agent.yaml
