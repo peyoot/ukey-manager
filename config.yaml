@@ -62,8 +62,8 @@ ukeys:                                   # 端口 → UKey 显示名称（可在
   - {hub: hub-a, port: 2, label: "演示 UKey 2"}
 
 manager_installer:                       # Digi 官方 AnywhereUSB Manager 安装包（用户从 Digi 官网下载后放入 dist/）
-  file: dist/REPLACE_WITH_DIGI_INSTALLER.exe
-  sha256: "REPLACE_WITH_SHA256"          # sha256sum dist/<文件名>
+  file: dist/40003045_Win64-10.1.38.188_T.exe
+  sha256: "c21b97c8fa7e8765503ee648654d4a59bf12ffe82447f1856ac65a1c21272546"          # sha256sum dist/<文件名>
   install_dir: 'C:\Program Files\Digi\AnywhereUSBManager'
 
 agent_package:
