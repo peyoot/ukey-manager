@@ -1,0 +1,215 @@
+{
+	"version": "1.0",
+	"endpointPrefix": "/cgi-bin/config.cgi",
+	"errorResponse": {
+		"error": true,
+		"msg": "Error description."
+	},
+	"pathVariants": [
+		"/value/service/ssh?expanded=true",
+		"/value/service.ssh?expanded=true",
+		"/value?path=service.ssh&expanded=true",
+		"/value/service/ssh/port"
+	],
+	"links": [
+		{
+			"href": "/value/<?path>",
+			"method": "GET",
+			"desc": "Get the contents of the config at the requested path. Single or multiple values may be returned. NOTE: This cannot be applied to the root.",
+			"options": [
+ 				{ "key": "path", "desc": "String of the JSON dot path into the config. Only required as a query option when not specified in the URL." },
+ 				{ "key": "collapsed", "desc": "Boolean value to request value object data in collapsed (list) form. Default is 'true'." },
+ 				{ "key": "expanded", "desc": "Boolean value to request value object data in expanded (object) form. Default is 'false'." }
+			],
+			"successResponse": {
+				"ok": true,
+				"result": {
+					"path": "String containing the requested path. Keys in 'expanded' and 'collapsed' are relative to this path.",
+					"type": "Type string of the result. Primitive types are {'string'|'integer'|'number'|'boolean'}. Compound types are {'object'|'array'}.",
+					"value": "String representation of the value mapped to path, if result is a primitive type.",
+					"collapsed": "Map of expanded relative key paths to values, if requested and applicable to the returned type.",
+					"expanded": "Nested object of values, if requested and applicable to the returned type."
+				}
+			},
+
+			"examples": [
+				{
+					"request": "GET /cgi-bin/config.cgi/value/service/ssh?collapsed=false&expanded=true",
+					"response": {
+						"ok": true,
+						"result": {
+							"type": "object",
+							"path": "service.ssh",
+							"collapsed": {
+								"acl.interface.0": "setupip",
+								"acl.zone.0": "internal",
+								"acl.zone.1": "ipsec",
+								"enable": "true",
+								"port": "22",
+								"protocol.0": "tcp"
+							}
+						}
+					}
+				},
+				{
+					"request": "GET /cgi-bin/config.cgi/value/service/ssh",
+					"response": {
+						"ok": true,
+						"result": {
+							"type": "object",
+							"path": "service.ssh",
+							"expanded":  {
+								"acl": {
+									"interface": {
+										"0": "setupip"
+									},
+									"zone": {
+										"0": "internal",
+										"1": "ipsec"
+									}
+
+								},
+								"enable": "true",
+								"port": "22",
+								"protocol": {
+									"0": "tcp"
+								}
+							}
+						}
+					}
+				},
+				{
+					"request": "GET /cgi-bin/config.cgi/value/service/ssh/port",
+					"response": {
+						"ok": true,
+						"result": {
+							"type": "integer",
+							"path": "service.ssh.port",
+							"value": "22"
+						}
+					}
+				}
+			]
+		},
+		{
+			"href": "/value/<?path>",
+			"method": "POST",
+			"desc": "Set values in the config. Single or multiple values may be set.",
+			"options": [
+ 				{ "key": "path", "desc": "String of the JSON dot path of the desired write location in the config. Only required as a query option when not specified in the URL." },
+				{ "key": "value", "desc": "A single value to be written to the destination path. If using this, do not set 'collapsed' or 'expanded'." },
+ 				{ "key": "collapsed", "desc": "Map of relative paths to values. This is the same format as returned by GET with 'collapsed=true'. If using this, do not set 'value' or 'expanded'." },
+ 				{ "key": "expanded", "desc": "Nested object of values in expanded (object) form. This is the same format as returned by GET with 'expanded=true'. If using this, do not set 'value' or 'collapsed'." },
+				{ "key": "append", "desc": "Flag indicating that the data should be appended to the array at 'path'. Requires that 'path' is the path to an array, and that the provided data in the collapsed/expanded keys have the correct fields as required by the schema." },
+				{ "key": "object_value", "desc": "If the value is a dynamic object name being appended to an array, and that object only requires a single value, use this to set the value for that object." }
+			],
+			"successResponse": {
+				"ok": true,
+				"result": "If an array 'append' was requested, then this variable will be path string of the created element, else this variable is not defined."
+			},
+			"examples": [
+				{
+					"request": "POST /cgi-bin/config.cgi/value?path=service.ssh.port&value=2022",
+					"response": {
+						"ok": true
+					}
+				},
+				{
+					"request": "POST /cgi-bin/config.cgi/value?path=service.ssh.acl.zone&append=true&value=external",
+					"response": {
+						"ok": true,
+						"result": "service.ssh.acl.zone.2"
+					}
+				},
+				{
+					"request": "POST /config.cgi/value?path=auth.user.admin.ssh_key&append=true&value=key_name&object_value=testkey",
+					"response": {
+						"ok": true,
+						"result": "auth.user.admin.ssh_key.key_name"
+					}
+				},
+				{
+					"request": "POST /cgi-bin/config.cgi/value?path=network.route.static&append=true&collapsed[dst]=1.2.4.0/24&collapsed[interface]=/network/interface/wan",
+					"response": {
+						"ok": true,
+						"result": "network.route.static.1"
+					}
+				}
+			]
+		},
+		{
+			"href": "/value/<?path>",
+			"method": "DELETE",
+			"desc": "Remove an element from an array in the config.",
+			"options": [
+ 				{ "key": "path", "desc": "String of the JSON dot path of the array element to be removed. Only required as a query option when not specified in the URL." }
+			],
+			"successResponse": {
+				"ok": true
+			},
+			"examples": [
+				{
+					"request": "DELETE /cgi-bin/config.cgi/value?path=service.ssh.acl.zone.2",
+					"response": {
+						"ok": true
+					}
+				}
+			]
+		},
+		{
+			"href": "/keys/<?path>",
+			"method": "GET",
+			"desc": "Get the children keys of an object at the requested path. NOTE: This cannot be applied to the root.",
+			"options": [
+ 				{ "key": "path", "desc": "String of the JSON dot path of the object to retrieve keys from. Only required as a query option when not specified in the URL." }
+			],
+			"successResponse": {
+				"ok": true,
+				"result": "Array of strings of child keys"
+			},
+			"examples": [
+				{
+					"request": "GET /cgi-bin/config.cgi/keys/config",
+					"response": {
+						"ok": true,
+						"result": [
+							"ca",
+							"certificate_url",
+							"check_freq",
+							"check_time",
+							"config_url",
+							"enable",
+							"firmware_url",
+							"speedtest_server"
+						]
+					}
+				}
+			]
+		},
+		{
+			"href": "/changes/<?path>",
+			"method": "GET",
+			"desc": "Get the changes made on the current config (where defaults are overwritten).",
+			"options": [
+ 				{ "key": "path", "desc": "String of the JSON dot path of the object to retrieve the changes of. Only required as a query option when not specified in the URL." }
+			],
+			"successResponse": {
+				"ok": true,
+				"result": "Nested JSON object of the changes from the default configuration"
+			},
+			"examples": [
+				{
+					"request": "GET /cgi-bin/config.cgi/changes/config",
+					"response": {
+						"ok": true,
+						"result": {
+							"ssh": {
+								"port": "2022"
+							}
+						}
+					}
+				}
+			]
+		}
+	]
+}

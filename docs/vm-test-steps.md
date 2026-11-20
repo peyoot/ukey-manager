@@ -18,7 +18,7 @@ Start-Transcript -Path C:\dev\ukey-test\manager-test.txt -Append
 
 ```powershell
 cd C:\dev\ukey-test
-scp <ubuntu用户>@10.70.1.63:~/mygit/ukey-manager/dist/40003045_Win64-10.1.38.188_T.exe .
+scp robin@10.70.1.63:~/mygit/ukey-manager/dist/40003045_Win64-10.1.38.188_T.exe .
 Get-FileHash .\40003045_Win64-10.1.38.188_T.exe -Algorithm SHA256
 ```
 

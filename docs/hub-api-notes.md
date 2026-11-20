@@ -186,6 +186,46 @@ protocol, tls_cipher_list, tls_ciphersuites, usb_allow_list, usb_dev_quirks, usb
 action, actiond, auth, cloud, device, firewall, firmware, modem, monitoring, network, schema, service, system, vpn。
 按项目安全边界，除 `service.anywhereusb` 外**不得写入**。
 
+## 5b. 写入语法（来自 Hub 自带规格，`GET /cgi-bin/config.cgi` 无子路径即返回，已存 `docs/hub-config-cgi-spec.json`）
+
+```bash
+# 查看完整规格（只读）
+curl -sk -u "admin:$HUB_PW" "https://$HUB/cgi-bin/config.cgi" | python3 -m json.tool | less
+```
+
+| 操作 | 请求 | 说明 |
+|---|---|---|
+| 写单个值 | `POST /value?path=<点路径>&value=<值>` | 例 `service.ssh.port` |
+| 追加数组元素 | `POST /value?path=<数组路径>&append=true&value=<值>` | 成功返回新元素路径，如 `service.ssh.acl.zone.2` |
+| 追加带字段的元素 | `POST /value?path=<数组>&append=true&collapsed[字段]=值&collapsed[字段2]=值` | 字段名须符合 schema |
+| 删除数组元素 | `DELETE /value?path=<数组路径>.<序号>` | 例 `service.ssh.acl.zone.2` |
+| 读取 | `GET /value/<路径>`，可加 `?expanded=true` | |
+
+要点：
+- 这与 CLAUDE.md 里"POST 授权 / DELETE 回收"的猜测一致，但**路径与字段名以本规格为准**。
+- 没有 commit/apply 动作，写入即生效（待实测确认）。
+- `clients` 条目的字段名仍未知，将用 `append=true` 配合报错信息（schema 校验）探测，仅在 test_port 相关数据上操作，写前备份，可用 DELETE 回滚。
+
+## 5c. 客户端条目结构（实测，2026-11-20）
+
+- 追加：`POST /value?path=service.anywhereusb.clients&append=true&collapsed[id]=ukey-vm-win-1`
+  → `{"ok": true, "result": "service.anywhereusb.clients.0"}`
+- 条目字段：`id`（Client ID）、`description`、`groups`（数组，元素预计为分组名如 `group01`，待实测）。
+- 探测方法：用不存在的字段追加，Hub 返回 HTTP 200 + `invalid path or value setting '...' - check the schema`，且**不会创建**元素。
+- 写后读回：`clients.0 = {id: ukey-vm-win-1, description: "", groups: []}`。写入立即生效，无需 commit。
+- 删除（回滚）：`DELETE /value?path=service.anywhereusb.clients.0`（注意：数组删除后序号会前移）。
+
+```bash
+# 添加客户端
+curl -sk -u "admin:$HUB_PW" -X POST "$API/value" --data-urlencode "path=service.anywhereusb.clients" -d "append=true" --data-urlencode "collapsed[id]=ukey-vm-win-1"
+# 读回
+curl -sk -u "admin:$HUB_PW" "$API/value/service/anywhereusb/clients" | python3 -m json.tool
+# 删除（回滚）
+curl -sk -u "admin:$HUB_PW" -X DELETE "$API/value?path=service.anywhereusb.clients.0"
+```
+
+> 已实测：`curl -X POST` 的表单体（`-d` / `--data-urlencode`）和 URL query（`curl -g`，避免方括号被 curl 当作通配）两种写法，Hub 解析结果相同。
+
 ## 6. 仍不确定的点（阶段 0.5 解决）
 
 | # | 问题 | 计划 |
@@ -193,7 +233,7 @@ action, actiond, auth, cloud, device, firewall, firmware, modem, monitoring, net
 | 1 | `clients` 条目字段名与分组访问格式 | 在 test_port（端口 1）上受控写入，写前备份，写后读回 |
 | 2 | 数组与分组 ports 的写法（POST / PUT / DELETE 路径，是否需要提交动作） | 同上 |
 | 3 | 分组名能否自定义为 `hub-a-p01`，还是只能用 `groupNN` + description | 写入 description 验证 |
-| 4 | 型号、序列号、固件版本的读取来源 | 先看 vm-win-1 上 Manager 的 `LIST FULL`；必要时再探测其他路径 |
+| 4 | ~~型号、序列号、固件版本的读取来源~~ | **已解决**：Manager `LIST FULL` 给出 AnywhereUSB 8 Plus / AW08-017363 / 固件 26.2.148.166 |
 | 5 | 撤销授权时已连接的客户端会怎样 | 阶段 0.5 实测 |
 | 6 | 连接状态（哪个客户端占用了哪个分组）从哪里读 | 待查 |
 

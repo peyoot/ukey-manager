@@ -16,7 +16,7 @@
 | A7 | 错误密码 | `errors` | 401 | HTTP 401（仅试 1 次） | PASS |
 | A8 | Hub 不可达 | `errors`（测试地址 10.255.255.1） | 超时异常 | `ConnectTimeout`，4s | PASS |
 | A9 | 修改测试端口分组归属，写后读校验 | 待写入语法确认 | | | 待测 |
-| A10 | 添加 vm-win-1 Client ID（若支持） | | | | 待测 |
+| A10 | 添加 vm-win-1 Client ID | `POST /value?path=service.anywhereusb.clients&append=true&collapsed[id]=ukey-vm-win-1`（先备份 `backups/hub-a-pre-client-write-20261120-051126.json`） | 创建条目 | 返回 `clients.0`；读回 `{id, description:"", groups:[]}`；错误字段名被 schema 拒绝且不创建元素 | PASS（VM 侧可见性待测） |
 | A11 | 授予分组给 Client ID；VM 是否立即可见 | | | | 待测（需 VM） |
 | A12 | 撤销授权；已连接时的行为 | | | | 待测（需 VM） |
 
