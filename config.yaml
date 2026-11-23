@@ -58,8 +58,8 @@ agents:
       client_id: null                    # 代理注册后由服务器回填
 
 ukeys:                                   # 端口 → UKey 显示名称（可在向导第 3 步修改）
-  - {hub: hub-a, port: 1, label: "演示 UKey 1"}
-  - {hub: hub-a, port: 2, label: "演示 UKey 2"}
+  - {hub: hub-a, port: 6, label: "演示 U 盘（端口 6）"}      # Hub 状态页确认：Port 6 = USB Disk
+  - {hub: hub-a, port: 3, label: "XBee 开发板（端口 3）"}      # Hub 状态页确认：Port 3 = Digi XBee Micro Dev Board
 
 manager_installer:                       # Digi 官方 AnywhereUSB Manager 安装包（用户从 Digi 官网下载后放入 dist/）
   file: dist/40003045_Win64-10.1.38.188_T.exe

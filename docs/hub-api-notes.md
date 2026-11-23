@@ -226,6 +226,39 @@ curl -sk -u "admin:$HUB_PW" -X DELETE "$API/value?path=service.anywhereusb.clien
 
 > 已实测：`curl -X POST` 的表单体（`-d` / `--data-urlencode`）和 URL query（`curl -g`，避免方括号被 curl 当作通配）两种写法，Hub 解析结果相同。
 
+## 5d. 分组与授权写入（实测，2026-11-20，仅端口 1）
+
+备份：`backups/hub-a-pre-port1-split-20261120-062839.json`。步骤与读回：
+
+| 步骤 | 请求 | 结果 |
+|---|---|---|
+| A 加入新分组 | `POST /value?path=service.anywhereusb.groups.group02.ports&append=true&value=1` | `group02.ports.0 = "1"` |
+| B 移出旧分组 | `DELETE /value?path=service.anywhereusb.groups.group01.ports.0` | group01 剩 2..8，**数组序号前移**（原 ports.1="2" 变成 ports.0） |
+| C 授权 | `POST /value?path=service.anywhereusb.clients.0.groups&append=true&value=group02` | `clients.0.groups.0 = "group02"` |
+
+结论：
+- 分组访问字段 = `clients.N.groups` 数组，元素是**分组名**（`groupNN`）。
+- **同一端口可以同时属于两个分组**（A 完成后端口 1 同时在 group01 与 group02），所以"先加后删"可避免端口短暂无分组。
+- 数组 DELETE 后序号前移，删除前必须读回确认序号，不能按固定位置删。
+- 回滚：`DELETE ...clients.0.groups.0`；`POST ...groups.group01.ports append value=1`（会追加到末尾）；`DELETE ...groups.group02.ports.0`。
+
+## 5e. 端口设备查询与全端口"端口号 = 分组号"（实测，2026-11-20）
+
+**Hub 网页状态页**：`https://10.70.1.208/awusb/?view=status`（需登录）显示：
+- *USB Devices*：每个端口的分组、USB 版本、厂商、产品、序列号（可确认哪个口插了什么）；
+- *Groups in Use*：正在被占用的分组、Client ID、客户端 IP；
+- *Client Connections*：已连接的客户端。
+
+hub-a 当前：Port 3 = Digi XBee Micro Development Board，Port 6 = USB Disk（序列号 FC1575EA0B448），其余空。
+`config.cgi` 不含这些运行状态；**其数据来源接口尚未找到**（页面由脚本加载），代理侧可用 Manager `LIST FULL`。
+
+**全端口重映射**（备份 `backups/hub-a-pre-all-ports-20261120-065637.json`）：
+- 端口 N ↔ `groupNN`（port 1→group01 … port 8→group08），描述改为 `hub-a-pNN`（对应 name_pattern）；
+- 算法：对每个端口先 `append` 到目标分组，再重读索引后 `DELETE` 其他分组中的该端口（先加后删，索引每次重读）；
+- 读回：`group01=['1'] … group08=['8']`，描述 `hub-a-p01 … hub-a-p08`。
+- Manager 的分组地址因此为 `AW08-017363.<端口号>`（如端口 6 → `AW08-017363.6`），端口号与分组序号一致，便于理解。
+- 客户端 `ukey-vm-win-1` 当前 groups：`group02`（遗留）、`group06`、`group03`。
+
 ## 6. 仍不确定的点（阶段 0.5 解决）
 
 | # | 问题 | 计划 |

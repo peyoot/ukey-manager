@@ -84,3 +84,38 @@
 - 设置 `groups` 之前，Hub 上的"可见性"由客户端列表条目决定：登记 → 可连接 Hub；授予分组 → 才看到分组与设备。
 - 日志中仍有早期 `Server error 1` 记录，是登记前的重试；时间戳 05:11:15 起连接成功。
 - 待测：授予分组后 `LIST FULL` 的分组/设备格式，`CONNECT GROUP` 地址形式（预计 `AW08-017363.<N>`）。
+
+## 6. 授权后 `LIST FULL`（实测）与分组地址
+
+Hub 上端口 1 单独放入 `group02` 并授权给 `ukey-vm-win-1` 后，`LIST FULL` 在 Hub 下新增：
+
+```
+    Group 2 (AW08-017363.2)
+      ADDRESS: AW08-017363.2
+      GROUP: 2
+      NAME: Group 2
+      PORTS: 1
+      AUTOCONNECT: disabled
+      IN USE BY: NO ONE
+```
+
+关键发现：
+1. **分组地址 = `<序列号>.<分组序号>`，序号来自 Hub 分组名 `groupNN` 的 NN，不是端口号。** 端口 1 在 group02，所以地址是 `AW08-017363.2`，不是 CLAUDE.md 示例的 `.1`。服务器必须维护"端口 ↔ 分组"映射并按分组下发 CONNECT。
+2. 授权约 30 秒内 VM 即可见分组（Manager 自动重试，无需手动刷新；这里等待了数十秒到数十分钟，未精确测量）。
+3. `IN USE BY: NO ONE` 给出占用方，可用于对账和 RELEASE_ASK 判定。
+4. `PORTS: 1` 显示分组包含的端口；分组下尚未列出设备（预计连接分组后出现，待测）。
+5. 待测：`CONNECT GROUP,AW08-017363.2` 的返回与设备管理器表现；`DISCONNECT GROUP`；被占用/撤销授权时的行为。
+
+## 7. CONNECT GROUP 实测（2026-11-20）
+
+```
+> awusbmanager.exe CONNECT GROUP,AW08-017363.2
+OK
+ExitCode = 0
+```
+
+- `CONNECT GROUP` 成功：输出 `OK`，退出码 0，约 5 秒内 `LIST FULL` 变为 `Group 2 (AW08-017363.2) (In-use by you)`，`IN USE BY: YOU`。
+- `GROUP INFO,AW08-017363.2` 输出 5 行：`ADDRESS / GROUP / NAME / PORTS / IN USE BY`（可用于代理轻量查询占用方）。
+- 解析提示：分组标题行带 `(In-use by you)` 后缀；占用方取 `IN USE BY:` 行（`NO ONE` / `YOU` / 其他客户端，其他客户端的写法待测）。
+- 系统中出现 `AnywhereUSB eXtensible Remote Host Controller`（虚拟主控制器，表示 Manager 驱动工作）。
+- **异常：分组下没有设备行，设备管理器也没出现 U 盘。** 原因待确认：端口 1 上是否真的插有设备，或设备尚未枚举。待用户确认物理连接后复测。

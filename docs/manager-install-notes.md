@@ -39,3 +39,4 @@
 
 11. `SET CLIENTID,<id>` 实测有效：返回 `OK`，自动创建 `awusb.ini`，重启服务后保留。**代理应使用此命令，不手写 ini。**
 12. `SET CLIENTID` 后未重启服务，`LIST` 立即显示新 Client ID，无需重启。
+13. **服务模式下可打开 GUI**（实测）：管理员身份运行 `Start-Process "C:\Program Files\Digi\AnywhereUSBManager\awusbmanager.exe" -Verb RunAs` 可打开 Manager 界面查看设备与连接，无需切回 stand-alone。演示时可用它做可视化。
