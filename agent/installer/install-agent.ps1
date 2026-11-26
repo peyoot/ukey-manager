@@ -47,16 +47,19 @@ if (-not $EnrollmentToken) {
 New-Item -ItemType Directory -Force $InstallDir, $DataDir, "$DataDir\logs" | Out-Null
 
 # ---- 1 证书：固定信任服务器证书
+if (-not ([System.Management.Automation.PSTypeName]'UKeyCertPin').Type) {
 Add-Type -TypeDefinition @"
 using System.Net.Security; using System.Security.Cryptography.X509Certificates;
-public static class UKeyPin {
+public static class UKeyCertPin {
   public static string Thumb = null;
   public static bool Check(object s, X509Certificate c, X509Chain ch, SslPolicyErrors e) {
     if (e == SslPolicyErrors.None) return true;
     return Thumb != null && new X509Certificate2(c).Thumbprint == Thumb;
   }
+  public static RemoteCertificateValidationCallback Callback = new RemoteCertificateValidationCallback(Check);
 }
 "@
+}
 $pinned = "$DataDir\server.pem"
 function Save-Pem($cert, $path) {
     $b64 = [Convert]::ToBase64String($cert.RawData, 'InsertLineBreaks')
@@ -66,7 +69,7 @@ if ($ServerCert) {
     Step "使用指定的服务器证书 $ServerCert"
     $c = New-Object Security.Cryptography.X509Certificates.X509Certificate2((Resolve-Path $ServerCert).Path)
     Save-Pem $c $pinned
-    [UKeyPin]::Thumb = $c.Thumbprint
+    [UKeyCertPin]::Thumb = $c.Thumbprint
 } elseif ($SkipCertCheck) {
     Write-Warning "-SkipCertCheck：首次信任服务器证书（TOFU）。请把下面的指纹与服务器上 gen_cert.sh 输出的 SHA-256 指纹核对！"
     $tcp = New-Object Net.Sockets.TcpClient($uri.Host, $uri.Port)
@@ -77,9 +80,9 @@ if ($ServerCert) {
     $fp = (Get-FileHash -InputStream ([IO.MemoryStream]::new($c.RawData)) -Algorithm SHA256).Hash
     Write-Host "服务器证书 SHA-256 指纹: $fp"
     Save-Pem $c $pinned
-    [UKeyPin]::Thumb = $c.Thumbprint
+    [UKeyCertPin]::Thumb = $c.Thumbprint
 }
-[Net.ServicePointManager]::ServerCertificateValidationCallback = [Net.Security.RemoteCertificateValidationCallback]([UKeyPin].GetMethod("Check"))
+[Net.ServicePointManager]::ServerCertificateValidationCallback = [UKeyCertPin]::Callback
 $caLine = if (Test-Path $pinned) { "server_ca_cert: '$pinned'" } else { "server_ca_cert: null" }
 
 # ---- 2 manifest 与 agent.exe（校验哈希）
@@ -103,7 +106,7 @@ Step "写入配置 $DataDir\agent.yaml"
 $cfgPath = "$DataDir\agent.yaml"
 $keepToken = ""
 if ((Test-Path $cfgPath) -and (Select-String -Path $cfgPath -Pattern '^agent_token:\s*\S+' -Quiet)) { $keepToken = (Select-String -Path $cfgPath -Pattern '^agent_token:\s*(\S+)').Matches[0].Groups[1].Value }
-@"
+$yaml = @"
 server_url: $wsUrl
 api_url: $($ServerUrl.TrimEnd('/'))
 $caLine
@@ -114,7 +117,8 @@ manager:
   client_id: null
 local_ui_port: 47800
 log_dir: '$DataDir\logs'
-"@ | Set-Content -Path $cfgPath -Encoding utf8
+"@
+[IO.File]::WriteAllText($cfgPath, $yaml, (New-Object Text.UTF8Encoding $false))
 icacls $DataDir /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" | Out-Null
 
 # ---- 4 Manager：检测 / 安装 / 服务模式 / Client ID
@@ -136,11 +140,11 @@ if ($LASTEXITCODE -eq 0) { Write-Host "已获批准" } else { Write-Host "已提
 Step "安装并启动服务 $ServiceName"
 $bin = "`"$exe`" service-run --config `"$cfgPath`""
 if (Get-Service $ServiceName -ErrorAction SilentlyContinue) {
-    sc.exe config $ServiceName binPath= $bin start= auto | Out-Null
-} else {
-    sc.exe create $ServiceName binPath= $bin start= auto obj= LocalSystem DisplayName= "UKey Agent" | Out-Null
+    Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue
+    sc.exe delete $ServiceName | Out-Null
+    Start-Sleep 3
 }
-sc.exe description $ServiceName "UKey 管理服务器的客户端代理（演示）" | Out-Null
+New-Service -Name $ServiceName -BinaryPathName $bin -DisplayName "UKey Agent" -Description "UKey 管理服务器的客户端代理（演示）" -StartupType Automatic | Out-Null
 sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/5000/restart/30000 | Out-Null
 Start-Service $ServiceName
 Start-Sleep 3

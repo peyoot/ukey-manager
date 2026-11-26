@@ -69,7 +69,7 @@ async def test_install_script_is_served_with_server_url_filled_in(tmp_path):
 
 def test_installer_scripts_follow_the_safety_rules():
     ps = Path("agent/installer/install-agent.ps1").read_text(encoding="utf-8")
-    assert "IsInRole" in ps and "Get-FileHash" in ps and "setup-manager" in ps and "sc.exe create" in ps
+    assert "IsInRole" in ps and "Get-FileHash" in ps and "setup-manager" in ps and "New-Service" in ps
     assert "LocalSystem" in ps and "icacls" in ps and "SYSTEM:(OI)(CI)F" in ps
     for forbidden in ("netsh", "Set-NetFirewall", "Disable-", "EnableLUA", "Set-MpPreference", "Enable-PSRemoting", "winrm quickconfig"):
         assert forbidden not in ps, forbidden           # 不改防火墙 / UAC / 杀毒 / 远程管理
@@ -93,3 +93,23 @@ def test_powershell_scripts_have_utf8_bom():
 async def test_served_install_script_has_no_bom_char(tmp_path):
     async with await client(make(tmp_path)) as c:
         assert not (await c.get("/agent/install.ps1")).text.startswith("\ufeff")
+
+
+def test_install_script_avoids_known_powershell_5_1_pitfalls():
+    ps = Path("agent/installer/install-agent.ps1").read_text(encoding="utf-8-sig")
+    assert "GetMethod" not in ps                                  # MethodInfo 不能转成委托（实测报错）
+    assert "[UKeyCertPin]::Callback" in ps and "RemoteCertificateValidationCallback Callback" in ps
+    assert "New-Service" in ps and "sc.exe create" not in ps      # sc.exe 的 binPath 引号在 5.1 里会被吃掉
+    assert "-Encoding utf8" not in ps and "UTF8Encoding $false" in ps   # 5.1 的 utf8 会写 BOM，PyYAML 读不了
+
+
+def test_agent_config_tolerates_utf8_bom(tmp_path):
+    from agent.agent import AgentConfig
+
+    f = tmp_path / "agent.yaml"
+    f.write_bytes(b"\xef\xbb\xbfserver_url: wss://x/ws/agent\nenrollment_token: tok\nhostname: VM\n")
+    cfg = AgentConfig.load(f)
+    assert cfg.server_url == "wss://x/ws/agent" and cfg.enrollment_token == "tok"
+    cfg.agent_token = "t2"
+    cfg.save_tokens()
+    assert "agent_token: t2" in f.read_text(encoding="utf-8")

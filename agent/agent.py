@@ -62,7 +62,7 @@ class AgentConfig:
 
     @classmethod
     def load(cls, path: str | Path) -> "AgentConfig":
-        raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+        raw = yaml.safe_load(Path(path).read_text(encoding="utf-8-sig")) or {}
         mgr = raw.get("manager") or {}
         return cls(
             server_url=raw.get("server_url", cls.server_url), api_url=raw.get("api_url", cls.api_url),
@@ -77,7 +77,7 @@ class AgentConfig:
         """批准后写回专属 token 并清空注册令牌；文件权限收紧（Windows 的 ACL 由安装脚本设置）。"""
         if not self.path:
             return
-        raw = yaml.safe_load(Path(self.path).read_text(encoding="utf-8")) or {}
+        raw = yaml.safe_load(Path(self.path).read_text(encoding="utf-8-sig")) or {}
         raw["agent_token"], raw["enrollment_token"] = self.agent_token, ""
         tmp = Path(self.path).with_suffix(".tmp")
         tmp.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
