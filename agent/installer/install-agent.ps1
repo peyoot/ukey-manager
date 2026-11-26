@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   UKey 客户端代理一键安装（方式 A）。需要管理员 PowerShell。
 

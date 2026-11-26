@@ -1,4 +1,4 @@
-# 在 Windows 构建机（vm-win-1）上打包 agent.exe。步骤见 CLAUDE.md 第 4 节。
+﻿# 在 Windows 构建机（vm-win-1）上打包 agent.exe。步骤见 CLAUDE.md 第 4 节。
 # 前提：已在仓库目录建好 .venv 并 pip install -r agent\requirements.txt
 #   cd C:\dev\ukey-agent ; .\.venv\Scripts\Activate.ps1 ; .\agent\build.ps1
 $ErrorActionPreference = "Stop"

@@ -261,7 +261,7 @@ def create_app(
 
     @app.get("/agent/install.ps1")
     async def dl_install():
-        script = (Path(__file__).resolve().parent.parent / "agent" / "installer" / "install-agent.ps1").read_text(encoding="utf-8")
+        script = (Path(__file__).resolve().parent.parent / "agent" / "installer" / "install-agent.ps1").read_text(encoding="utf-8-sig")
         return PlainTextResponse(script.replace("__SERVER_URL__", public_url), media_type="text/plain; charset=utf-8")
 
     # ---------------------------------------------------------------- Hub 向导

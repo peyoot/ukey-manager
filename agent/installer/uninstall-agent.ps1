@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   卸载 UKey 代理：删除服务、C:\ProgramData\UKeyAgent\ 和安装目录。
   默认保留 Digi Manager；加 -RemoveManager 才卸载它（会切回前先尝试 awusbmanager.exe /u）。

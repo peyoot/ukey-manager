@@ -82,3 +82,14 @@ def test_remote_command_quotes_token_and_does_not_leak_it_elsewhere():
     cmd = build_command("https://10.70.1.63:8443", "to'k;en", ["-SkipCertCheck"])
     assert "-EnrollmentToken 'to''k;en'" in cmd and cmd.count("to''k") == 1
     assert "/agent/install.ps1" in cmd
+
+
+def test_powershell_scripts_have_utf8_bom():
+    """Windows PowerShell 5.1 把无 BOM 的 .ps1 当 ANSI(GBK) 读，中文会乱码并导致解析错误，所以必须带 UTF-8 BOM。"""
+    for f in Path("agent").rglob("*.ps1"):
+        assert f.read_bytes().startswith(b"\xef\xbb\xbf"), f
+
+
+async def test_served_install_script_has_no_bom_char(tmp_path):
+    async with await client(make(tmp_path)) as c:
+        assert not (await c.get("/agent/install.ps1")).text.startswith("\ufeff")
