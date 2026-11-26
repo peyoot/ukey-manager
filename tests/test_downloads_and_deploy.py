@@ -113,3 +113,9 @@ def test_agent_config_tolerates_utf8_bom(tmp_path):
     cfg.agent_token = "t2"
     cfg.save_tokens()
     assert "agent_token: t2" in f.read_text(encoding="utf-8")
+
+
+def test_installer_upgrade_keeps_real_token_but_not_empty_quotes():
+    ps = Path("agent/installer/install-agent.ps1").read_text(encoding="utf-8-sig")
+    assert """.Trim("'").Trim('"')""" in ps      # 否则 agent_token: '' 会被当成已有 token（''），升级后写出坏配置
+    assert "-Quiet" not in ps.split("$keepToken")[1].split("$enrollField")[0]

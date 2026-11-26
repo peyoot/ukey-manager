@@ -105,7 +105,10 @@ $exe = "$InstallDir\agent.exe"
 Step "写入配置 $DataDir\agent.yaml"
 $cfgPath = "$DataDir\agent.yaml"
 $keepToken = ""
-if ((Test-Path $cfgPath) -and (Select-String -Path $cfgPath -Pattern '^agent_token:\s*\S+' -Quiet)) { $keepToken = (Select-String -Path $cfgPath -Pattern '^agent_token:\s*(\S+)').Matches[0].Groups[1].Value }
+if (Test-Path $cfgPath) {
+    $m = Select-String -Path $cfgPath -Pattern '^agent_token:\s*(.*)$' | Select-Object -First 1
+    if ($m) { $keepToken = $m.Matches[0].Groups[1].Value.Trim().Trim("'").Trim('"') }   # 去掉引号；空串（''）表示还没有专属 token
+}
 $enrollField = if ($keepToken) { "" } else { $EnrollmentToken }   # 升级时已有专属 token，不再保存注册令牌
 $yaml = @"
 server_url: $wsUrl
