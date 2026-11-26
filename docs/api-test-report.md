@@ -17,8 +17,8 @@
 | A8 | Hub 不可达 | `errors`（测试地址 10.255.255.1） | 超时异常 | `ConnectTimeout`，4s | PASS |
 | A9 | 修改测试端口分组归属，写后读校验 | 先 `POST` 追加 "1" 到 `group02.ports`，再 `DELETE group01.ports.0`（备份 `hub-a-pre-port1-split-20261120-062839.json`） | 端口 1 单独成组 | group02.ports.0="1"；group01 剩 2..8（序号前移）；每步读回一致 | PASS |
 | A10 | 添加 vm-win-1 Client ID | `POST /value?path=service.anywhereusb.clients&append=true&collapsed[id]=ukey-vm-win-1`（先备份 `backups/hub-a-pre-client-write-20261120-051126.json`） | 创建条目 | 返回 `clients.0`；读回 `{id, description:"", groups:[]}`；错误字段名被 schema 拒绝且不创建元素 | PASS（VM 侧可见性待测） |
-| A11 | 授予分组给 Client ID；VM 是否立即可见 | `POST ...clients.0.groups append value=group02` | VM 看到分组 | Hub 侧读回 `groups.0=group02`；VM 侧待测 | 部分 PASS |
-| A12 | 撤销授权；已连接时的行为 | | | | 待测（需 VM） |
+| A11 | 授予分组给 Client ID；VM 是否立即可见 | `POST ...clients.0.groups append value=group02`（后改为 group06/group03） | VM 看到分组并可连接 | 授权约 30 秒内 VM 可见；`CONNECT GROUP,AW08-017363.6` 成功，U 盘在 VM 中出现为 E: | PASS |
+| A12 | 撤销授权；已连接时的行为 | `DELETE ...clients.0.groups.<idx>`（group06，U 盘已连接为 E:；备份 `hub-a-pre-revoke-20261126-032912.json`） | 观察 VM 是否断开 | Hub 删除时刻 03:29:13；VM 日志同一秒 `Device 2006 UNBOUND from connection 1`；E: 与磁盘消失；group06 从 `LIST FULL` 中**完全消失**（不再可见） | PASS：**撤销即强制断开**，无需等待 |
 
 写入类（A9–A12）仅在 `test_port`（端口 1）进行，写前备份，写后读回。
 

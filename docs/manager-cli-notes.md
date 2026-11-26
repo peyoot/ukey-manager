@@ -119,3 +119,73 @@ ExitCode = 0
 - 解析提示：分组标题行带 `(In-use by you)` 后缀；占用方取 `IN USE BY:` 行（`NO ONE` / `YOU` / 其他客户端，其他客户端的写法待测）。
 - 系统中出现 `AnywhereUSB eXtensible Remote Host Controller`（虚拟主控制器，表示 Manager 驱动工作）。
 - **异常：分组下没有设备行，设备管理器也没出现 U 盘。** 原因待确认：端口 1 上是否真的插有设备，或设备尚未枚举。待用户确认物理连接后复测。
+
+## 8. 连接端口 6 的 U 盘（实测）
+
+`CONNECT GROUP,AW08-017363.6` 后（用户贴回的输出）：
+
+- 设备管理器 / PnP：`DiskDrive: VendorC ProductCode USB Device`、`USB: USB 大容量存储设备`、`WPD: E:\`；
+- `Get-Disk`：`Number 1, VendorC ProductCode, BusType USB, 约 60 GB`；系统自动分配盘符 **E:**；
+- 即远程 USB 设备在 VM 里表现为本地 USB 磁盘，无驱动提示，**端口 6（Group 6）连接成功**。
+- 未收到：断开 group02 后的 `LIST FULL` 与连接后 `LIST FULL` 的设备行格式——待补，用于代理解析。
+
+## 9. 撤销授权已连接分组（A12，实测 2026-11-26）
+
+- Hub 上 `DELETE clients.0.groups.<group06 的索引>` 于 03:29:13 返回 ok；VM 日志**同一秒**记录 `Device 2006 UNBOUND from connection 1 (success 1)`。
+- 结果：E: 盘立即消失（`Get-Disk` 只剩系统盘）；`LIST FULL` 不再显示 group06，也就是 Hub 不再向该客户端展示未授权的分组。
+- **结论：Hub 撤销授权 = 立即强制断开，不等客户端同意。** 兜底回收只靠 `hub.revoke()` 就能生效；但这是强制拔盘，可能丢数据，所以正常释放应先发 DISCONNECT（让 VM 优雅断开）再 revoke。
+- 注意：撤销时 VM 上若有文件被占用，行为等同拔 U 盘。
+
+## 10. `LIST FULL` 设备行格式（实测，XBee 开发板在端口 3）
+
+```
+    hub-a-p03 (AW08-017363.3)        # 分组名来自 Hub 分组 description
+      ADDRESS: AW08-017363.3
+      GROUP: 3
+      NAME: hub-a-p03
+      PORTS: 3
+      AUTOCONNECT: disabled
+      IN USE BY: NO ONE
+
+        XBee Micro Development Board (AW08-017363.1703)
+          ADDRESS: AW08-017363.1703   # 设备地址 ≠ 分组地址，设备序号不等于端口号
+          VENDOR: Digi
+          VENDOR ID: 0x0403
+          PRODUCT: XBee Micro Development Board
+          PRODUCT ID: 0x6001
+          PORT ON HUB: 3               # 设备所在物理端口
+          AUTOCONNECT: disabled
+          IN USE BY: NO ONE
+          SPEED: FULL
+```
+
+- 分组名 `NAME` 随 Hub 分组 `description` 变化（hub-a-p03），**服务器改 description 即可让 VM 上显示可读名称**。
+- 设备行出现在分组下（缩进更深），含 `PORT ON HUB`，**可用来判断某端口是否有设备**。
+- 设备地址形如 `AW08-017363.1703`（U 盘日志中为 device 2006），其数字不能由端口号推出，代理应解析 `PORT ON HUB`。
+- 空分组（如 hub-a-p02）只有分组行，无设备行。
+- 连接后设备的 `IN USE BY` 预计为 `YOU`（待用已连接状态补测）。
+- 观察：`CONNECTED FOR: 407812 sec`、`CONNECTION ID: 1`：此次 Manager 与 Hub 的连接已持续约 4.7 天（VM 一直在线），期间自动保持。
+
+## 11. 未授权时 CONNECT（实测 2026-11-26）
+
+```
+> awusbmanager.exe CONNECT GROUP,AW08-017363.6      # group06 已被 Hub 撤销授权
+FAILED
+ExitCode = 1
+```
+
+- 未授权（分组对该客户端不可见）时：输出 `FAILED`，退出码 **1**，没有更详细的原因文本。
+- 代理判断：退出码非 0 或输出含 `FAILED` 即失败；原因需结合 `LIST FULL`（分组是否可见）、`SHOW LOG` 区分。
+- 成功为输出 `OK`、退出码 0。
+
+## 12. 连接 / 断开完整流程（端口 6 U 盘，实测 2026-11-26）
+
+| 步骤 | 命令 | 输出 / 退出码 | 观察 |
+|---|---|---|---|
+| 连接 | `CONNECT GROUP,AW08-017363.6` | `OK` / 0 | 8 秒内分组变 `(In-use by you)`，设备行 `IN USE BY: YOU`、`ASSIGNED VIRTUAL PORT: 128`、`SPEED: SUPERSPEED` |
+| 系统 | `Get-Disk` / `Get-Volume E` | USB 磁盘约 60 GB，NTFS | E: 可读，能看到测试文件 `1.txt` |
+| 断开 | `DISCONNECT GROUP,AW08-017363.6` | `OK` / 0 | 5 秒内 `IN USE BY: NO ONE`，`Test-Path E:\` 为 False |
+
+- 断开后分组与设备**仍然列出**（`NO ONE`），因为授权仍在；只有撤销授权后才从 `LIST FULL` 消失。
+- U 盘设备行含 `SERIAL`（FC1575EA0B448）、`VENDOR ID/PRODUCT ID`，适合在控制台展示。
+- 优雅断开（DISCONNECT）与强制断开（撤销授权）的区别见第 9 节。

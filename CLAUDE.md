@@ -176,18 +176,30 @@ Hub REST API（`scripts/hub_probe.py`），写操作只在 `config.yaml` 的 `te
 Manager 安装与模式（基于快照 S1，请用户执行）：
 - [ ] 静默安装：`<安装包>.exe /S /v/qn`（Digi 知识库给出，属非官方支持方式，可能随版本变化）；确认安装后为 stand-alone 模式、安装路径、退出码
 - [ ] 切换为服务模式：`"C:\Program Files\Digi\AnywhereUSBManager\awusbmanager.exe" /i /q /g`；回退：`awusbmanager.exe /u`
-- [ ] 服务内部名称：`Get-Service | Where-Object DisplayName -like "*AnywhereUSB*"`（显示名 "Digi AnywhereUSB Manager service"）
-- [ ] 服务模式配置目录 `C:\Windows\System32\config\systemprofile\AppData\Roaming\AnywhereUSB\`；`awusb.ini` 中 `[Settings]` 的 `ClientId=` 写入后重启服务是否生效
+- [ ] 服务内部名称：`Get-Service | Where-Object DisplayName -like "*AnywhereUSB*"`（**实测**：服务名 `awusb`，显示名 "Digi AnywhereUSB Manager"）
+- [ ] 服务模式配置目录 `C:\Windows\System32\config\systemprofile\AppData\Roaming\AnywhereUSB\`；Client ID 用 `awusbmanager.exe SET CLIENTID,<id>` 设置（**实测**：自动生成 awusb.ini，立即生效，重启服务后保留）
 - [ ] 判断当前模式：`awusbmanager.exe LIST` 末尾是否显示以服务方式运行；服务是否存在
 - [ ] 安装是否弹出驱动签名 / 信任提示（若有，静默安装可能被阻塞，记录处理办法）
 
 Manager CLI（服务模式下，请用户执行）：
 - [ ] `LIST` / `LIST FULL` 输出格式（用于代理解析）
 - [ ] `KNOWN HUB ADD,AW08-017363`、`AUTOFIND,OFF`
-- [ ] `CONNECT GROUP` / `DISCONNECT GROUP` 的确切语法与返回（地址形如 `AW08-017363.1`）
+- [ ] `CONNECT GROUP` / `DISCONNECT GROUP` 的确切语法与返回（**实测**：分组地址 = `<序列号>.<分组序号>`，见下方"实测结论"）
 - [ ] 分组被占用或未授权时 CONNECT 的报错；服务模式下 CLI 所需权限
 
 结果分别写入 `docs/manager-install-notes.md`、`docs/manager-cli-notes.md`。任何一项与本文件写法不符时，以实测为准并更新本文件。
+
+### 阶段 0.5 实测结论（2026-11-26，hub-a + vm-win-1；详见 docs/ 下的 notes 与 api-test-report）
+
+- **Hub 写入**：`POST /cgi-bin/config.cgi/value?path=..&value=..`；数组追加加 `append=true`（返回新元素路径）；`DELETE /value?path=<数组>.<序号>`（删除后序号前移，必须重读）。错误也返回 HTTP 200，须检查 body 的 `error`。无需提交，写入即生效。
+- **客户端条目**：`service.anywhereusb.clients[i] = {id, description, groups[]}`，`groups` 元素是分组名（如 `group06`）。Hub 预置 `group01`–`group08`，分组名不可自定义，用 `description` 放可读名（`hub-a-p06`），Manager 的 `NAME` 随之显示。
+- **端口 ↔ 分组**：采用"端口 N = groupNN"。**分组地址 = `<序列号>.<分组序号>`**（端口 6 → `AW08-017363.6`），不是端口号以外的任何推算；设备地址（如 `AW08-017363.2006`）不能由端口号推出，代理要解析 `PORT ON HUB`。同一端口可同时属于多个分组，改归属时先加后删。
+- **可见性**：客户端未登记 → Hub 握手后拒绝（日志 `Unregistered Client Id`，`LIST FULL` 为空）；登记但无分组 → 只见 Hub；授予分组后约 30 秒内（Manager 每 30 秒重试）可见，且**即使未连接也列出分组与设备**。
+- **撤销授权 = 立即强制断开**（同一秒设备 UNBOUND，盘符消失）；因此正常释放先 `DISCONNECT GROUP`（优雅，退出码 0、`OK`），再 `hub.revoke()`；失联时只靠 `hub.revoke()` 兜底。
+- **CLI 返回**：成功 `OK` / 退出码 0；失败（如未授权）`FAILED` / 退出码 1，无原因文本。`LIST FULL` 中占用方为 `IN USE BY: YOU | NO ONE | ...`，`GROUP INFO,<地址>` 可轻量查询。
+- **Hub 识别**：型号/序列号/固件取自 Manager `LIST FULL`（`config.cgi` 读不到）。运行状态页 `https://<hub>/awusb/?view=status` 显示各端口设备、占用与客户端（数据接口未找到）。
+- **Manager**：静默安装 `/S /v/qn` 退出码 0 且无驱动弹窗；`/i /q /g` 切服务模式成功；服务模式下管理员可 `Start-Process awusbmanager.exe -Verb RunAs` 打开 GUI。**以管理员身份运行**。
+- **演示用设备**：hub-a 端口 6 = U 盘（映射为 E:），端口 3 = Digi XBee Micro 开发板。
 
 单 VM 无法真实演示"两个客户端争用"。阶段 2 起用 Ubuntu 上的**模拟代理**（`agent.py --mock-manager`，使用只存在于数据库、不写入 Hub 的虚拟 Client ID）充当第二个客户端验证调度逻辑。
 
@@ -249,7 +261,7 @@ HTTPS REST（控制台与第三方）：`GET /api/ports`、`POST /api/ports/{id}
 1. **检测**：`awusbmanager.exe` 是否存在（默认 `C:\Program Files\Digi\AnywhereUSBManager\`）；Manager 服务是否存在/运行；service 还是 standalone；版本。
 2. **未安装** → 从服务器 `/agent/manager-installer` 下载 Digi 官方安装包（或用本地文件），校验 `config.yaml` 中的 SHA-256 后静默安装，再次检测。
 3. **stand-alone** → `/i /q /g` 切换为服务模式；若 stand-alone 实例正在运行或已有自定义配置，先提示确认（两种模式配置独立）。
-4. **Client ID**：服务模式配置中无 ClientId 时按 `client_id_pattern` 写入（默认 `ukey-<主机名>`），重启 Manager 服务并验证；已有则保留。
+4. **Client ID**：`LIST` 首行 `Client ID:` 为空时，执行 `awusbmanager.exe SET CLIENTID,<id>`（按 `client_id_pattern`，默认 `ukey-<主机名>`）并用 `LIST` 验证；已有则保留。无需手写 ini、无需重启服务。
 5. **连接 Hub**：按 CONFIG 执行 `KNOWN HUB ADD`、`AUTOFIND,OFF`。
 6. **验证**：`LIST` 能看到 Hub，上报结果与 Client ID。
 7. 失败即停，输出错误与日志路径（`C:\ProgramData\UKeyAgent\logs\`），不做破坏性回滚。
