@@ -310,3 +310,22 @@ async def test_resent_connect_while_still_running_is_not_executed_twice():
     assert len([c for c in mgr.calls if c[0] == "connect"]) == 3             # 只执行了一轮（失败、失败、成功）
     acks = [m for m in sent if m.type == MsgType.ACK]
     assert len(acks) == 2 and acks[0].payload == acks[1].payload and acks[0].payload["ok"] is True
+
+
+def test_ui_request_waits_longer_than_a_quick_status_call():
+    """回归（实测）：申请时代理要刷新并重试，约 10 秒才回包；菜单固定 10 秒超时会误报"连接不上"，其实申请已成功。"""
+    from agent.agent import ui_ask
+
+    seen = []
+
+    def create(addr, timeout=None):
+        seen.append(timeout)
+        raise ConnectionRefusedError
+
+    ui_ask(1, {"cmd": "status"}, create=create)
+    ui_ask(1, {"cmd": "request"}, create=create, timeout=150)
+    assert seen == [10, 150]
+    import inspect
+    from agent import agent as mod
+    src = inspect.getsource(mod.ui_main)
+    assert "timeout=150" in src

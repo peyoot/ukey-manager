@@ -336,7 +336,10 @@ class Agent:
         失败时 REFRESH HUBS 并每隔几秒重试，最多 connect_retry_seconds。"""
         deadline = time.monotonic() + self.cfg.connect_retry_seconds
         res = self.manager.connect_group(address)
+        attempt = 1
         while not res.ok and time.monotonic() < deadline:
+            log.info("CONNECT %s 第 %d 次失败（Manager 可能还没看到刚授权的分组），REFRESH HUBS 后重试", address, attempt)
+            attempt += 1
             self.manager.refresh_hubs()
             time.sleep(self.connect_poll)
             res = self.manager.connect_group(address)
@@ -392,11 +395,11 @@ def _local_ip() -> str:
 
 
 # ====================================================================== `agent.exe ui`
-def ui_ask(port: int, req: dict, create=socket.create_connection) -> dict:
+def ui_ask(port: int, req: dict, create=socket.create_connection, timeout: float = 10) -> dict:
     """向本机代理服务发一条请求（一行 JSON）。编码固定 UTF-8：中文 Windows 的默认编码是 GBK，
     不显式指定会在解码服务器返回的中文时崩溃（实测）。"""
     try:
-        with create(("127.0.0.1", port), timeout=10) as s:
+        with create(("127.0.0.1", port), timeout=timeout) as s:
             s.sendall((json.dumps(req, ensure_ascii=False) + "\n").encode("utf-8"))
             line = s.makefile("r", encoding="utf-8", errors="replace").readline()
             return json.loads(line or "{}")
@@ -429,7 +432,9 @@ def ui_main(port: int) -> int:
         elif c in ("2", "3"):
             target = input("端口 ID 或 UKey 名称: ").strip()
             ref = {"port_id": target} if "-p" in target else {"label": target}
-            r = ask({"cmd": "request" if c == "2" else "release", **ref})
+            print("  处理中……刚授权的分组可能要几秒到几十秒才可用，请稍等")
+            # 申请时代理可能要刷新 Manager 并重试（最长约 40 秒），所以这里的等待上限比 10 秒长得多
+            r = ui_ask(port, {"cmd": "request" if c == "2" else "release", **ref}, timeout=150)
             print("  成功" if r.get("ok") else f"  失败: {r.get('error')} {r.get('data') or ''}")
         elif c == "4":
             print(json.dumps(ask({"cmd": "status"}), ensure_ascii=False, indent=2))
