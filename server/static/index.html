@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UKey 管理控制台（演示）</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header id="top" class="hidden">
+    <h1>UKey 管理控制台 <small>演示</small></h1>
+    <nav>
+      <a href="#ports" data-page="ports">端口总览</a>
+      <a href="#agents" data-page="agents">代理</a>
+      <a href="#hubs" data-page="hubs">Hub 管理</a>
+      <a href="#audit" data-page="audit">审计日志</a>
+    </nav>
+    <span class="spacer"></span>
+    <span id="live" class="badge off" title="实时推送连接状态">离线</span>
+    <button id="logout" class="link">退出</button>
+  </header>
+
+  <main>
+    <section id="page-login" class="hidden narrow">
+      <h2>管理员登录</h2>
+      <form id="login-form" autocomplete="off">
+        <label>用户名 <input name="username" value="admin" required></label>
+        <label>密码 <input name="password" type="password" required autocomplete="current-password"></label>
+        <button type="submit">登录</button>
+        <p id="login-error" class="error"></p>
+      </form>
+      <p class="muted">演示环境使用自签证书；生产环境请使用受信证书。</p>
+    </section>
+
+    <section id="page-ports" class="hidden"></section>
+    <section id="page-agents" class="hidden"></section>
+    <section id="page-hubs" class="hidden"></section>
+    <section id="page-audit" class="hidden"></section>
+  </main>
+
+  <footer>AI 生成的演示代码，对外展示前需由 Digi 工程师审核。</footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

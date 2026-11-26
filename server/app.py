@@ -17,7 +17,9 @@ from typing import Annotated
 
 from dotenv import dotenv_values
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response, WebSocket
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.websockets import WebSocketDisconnect
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from pydantic import BaseModel
 
@@ -28,6 +30,7 @@ from .hub.factory import create_hub
 from .link import AgentLink
 from .ws import AgentHub
 from .scheduler import Scheduler
+from .wizard import Wizard, WizardError
 
 SESSION_COOKIE = "ukey_session"
 SESSION_MAX_AGE = 8 * 3600
@@ -54,6 +57,10 @@ def create_app(
     cookie_secure: bool = True,
     background: bool = True,
     base_dir: Path | None = None,
+    config_path: Path | None = None,
+    env_path: Path | None = None,
+    backup_dir: Path | None = None,
+    hub_factory=None,
 ) -> FastAPI:
     raw = cfg.model_extra or {}
     lease = raw.get("lease", {})
@@ -256,6 +263,155 @@ def create_app(
     async def dl_install():
         script = (Path(__file__).resolve().parent.parent / "agent" / "installer" / "install-agent.ps1").read_text(encoding="utf-8")
         return PlainTextResponse(script.replace("__SERVER_URL__", public_url), media_type="text/plain; charset=utf-8")
+
+    # ---------------------------------------------------------------- Hub 向导
+    root = Path(base_dir) if base_dir else ROOT
+    bdir = Path(backup_dir) if backup_dir else root / "backups"
+
+    def default_factory(*, name, address, user, password, tls_verify, ports, model, serial):
+        from .hub.rest import RestHub
+
+        return RestHub(name, address, user, password, tls_verify=tls_verify, ports=ports, model=model, serial=serial, backup_dir=bdir)
+
+    wiz = Wizard(sched=sched, link=link, db=db, config_path=Path(config_path) if config_path else root / "config.yaml",
+                 env_path=Path(env_path) if env_path else root / ".env", backup_dir=bdir,
+                 hub_factory=hub_factory or default_factory)
+    app.state.wizard = wiz
+
+    def wz(coro_fn):
+        async def run(*a, **kw):
+            try:
+                return await coro_fn(*a, **kw)
+            except WizardError as e:
+                raise HTTPException(e.status, str(e))
+        return run
+
+    class ProbeBody(BaseModel):
+        name: str
+        address: str = ""
+        admin_user: str = "admin"
+        password: str = ""
+        tls_verify: bool = False
+        model: str | None = None
+        serial: str | None = None
+        edit: bool = False
+
+    class PlanBody(BaseModel):
+        session_id: str
+        grouping: str = "per-port"
+        authorization: str = "dynamic"
+        enable_service: bool = False
+        labels: dict[str, str] = {}
+        descriptions: dict[str, str] = {}
+        client_ids: list[str] = []
+        static_grants: dict[str, list[str]] = {}
+
+    class ApplyBody(BaseModel):
+        session_id: str
+        confirm: bool = False
+
+    class SessionBody(BaseModel):
+        session_id: str
+
+    @app.get("/api/hubs/config")
+    async def hubs_config(user: Admin):
+        return {"hubs": wiz.hubs_overview(), "suggested_name": wiz.suggest_name()}
+
+    @app.post("/api/hubs/probe")
+    async def hubs_probe(body: ProbeBody, user: Admin):
+        return await wz(wiz.probe)(body.model_dump(), actor=user)
+
+    @app.post("/api/hubs/plan")
+    async def hubs_plan(body: PlanBody, user: Admin):
+        d = body.model_dump()
+        return await wz(wiz.plan)(d.pop("session_id"), d)
+
+    @app.post("/api/hubs/apply")
+    async def hubs_apply(body: ApplyBody, user: Admin):
+        return await wz(wiz.apply)(body.session_id, body.confirm, actor=user)
+
+    @app.get("/api/hubs/wizard/{sid}")
+    async def hubs_wizard_status(sid: str, user: Admin):
+        try:
+            return wiz.get(sid).view()
+        except WizardError as e:
+            raise HTTPException(e.status, str(e))
+
+    @app.post("/api/hubs/{name}/restore")
+    async def hubs_restore(name: str, body: SessionBody, user: Admin):
+        try:
+            if wiz.get(body.session_id).name != name:
+                raise HTTPException(400, "会话与 Hub 名称不符")
+        except WizardError as e:
+            raise HTTPException(e.status, str(e))
+        return await wz(wiz.restore)(body.session_id, actor=user)
+
+    @app.delete("/api/hubs/{name}")
+    async def hubs_delete(name: str, user: Admin):
+        return await wz(wiz.remove_hub)(name, actor=user)
+
+    # ---------------------------------------------------------------- 控制台实时推送（/ws/console）
+    consoles: set[asyncio.Queue] = set()
+
+    def fanout(ev: dict) -> None:
+        for q in list(consoles):
+            if q.qsize() < 200:
+                q.put_nowait(ev)
+
+    sched.subscribe(fanout)
+
+    @app.websocket("/ws/console")
+    async def ws_console(ws: WebSocket):
+        origin, host = ws.headers.get("origin"), ws.headers.get("host")
+        if origin and host and origin.split("://", 1)[-1] != host:      # 防跨站 WebSocket 劫持
+            await ws.close(4403)
+            return
+        try:
+            signer.loads(ws.cookies.get(SESSION_COOKIE, ""), max_age=SESSION_MAX_AGE)
+        except BadSignature:
+            await ws.close(4401)
+            return
+        await ws.accept()
+        q: asyncio.Queue = asyncio.Queue()
+        consoles.add(q)
+        try:
+            await ws.send_json({"event": "hello"})
+            while True:
+                recv = asyncio.create_task(ws.receive_text())
+                get = asyncio.create_task(q.get())
+                done, pending = await asyncio.wait({recv, get}, return_when=asyncio.FIRST_COMPLETED)
+                for t in pending:
+                    t.cancel()
+                if recv in done:
+                    recv.result()          # 断开时抛 WebSocketDisconnect
+                if get in done:
+                    await ws.send_json(get.result())
+        except WebSocketDisconnect:
+            pass
+        finally:
+            consoles.discard(q)
+
+    # ---------------------------------------------------------------- 静态控制台页面
+    static_dir = Path(__file__).resolve().parent / "static"
+    CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+           "connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+
+    @app.middleware("http")
+    async def security_headers(request, call_next):
+        resp = await call_next(request)
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("Referrer-Policy", "no-referrer")
+        resp.headers.setdefault("X-Frame-Options", "DENY")
+        if not request.url.path.startswith("/api/") and request.url.path != "/agent/agent.exe":
+            resp.headers.setdefault("Content-Security-Policy", CSP)
+        return resp
+
+    @app.get("/", include_in_schema=False)
+    async def index():
+        return FileResponse(static_dir / "index.html", headers={"Cache-Control": "no-cache"})
+
+    if static_dir.is_dir():
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
     # ---------------------------------------------------------------- 审计与 Hub
     @app.get("/api/audit")

@@ -98,6 +98,12 @@ class AgentHub:
         finally:
             conn.pending.pop(env.id, None)
 
+    async def set_hubs_info(self, hubs_info: list[dict]) -> None:
+        """Hub 列表变化（向导）：更新 CONFIG，并向所有在线代理重新下发。"""
+        self.hubs_info = list(hubs_info)
+        for conn in list(self.conns.values()):
+            self._spawn(conn, self._push_config(conn))
+
     async def run_setup(self, agent_id: str) -> Ack:
         return await self.send(agent_id, "RUN_SETUP", {}, timeout=5, retries=1)
 

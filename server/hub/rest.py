@@ -296,6 +296,18 @@ class RestHub(HubAdapter):
                 raise HubVerifyError(f"{self.name}: {group} 描述读回不一致")
             return True
 
+    async def set_service_enabled(self, enabled: bool) -> bool:
+        async with self._lock:
+            if (await self._snapshot()).enabled == enabled:
+                return False
+            await self._set(f"{SVC}.enable", "true" if enabled else "false")
+            if (await self._snapshot()).enabled != enabled:
+                raise HubVerifyError(f"{self.name}: 服务启用状态读回不一致")
+            return True
+
+    async def service_keys(self) -> list[str]:
+        return list((await self._call("GET", "/keys/service/anywhereusb"))["result"])
+
     async def add_client(self, client_id: str, description: str = "") -> bool:
         async with self._lock:
             return await self._add_client(client_id, description)

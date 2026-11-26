@@ -76,6 +76,25 @@ class Scheduler:
             self._audit("system", None, None, "hub_removed_warning", "warn", msg)
         return warnings
 
+    # ------------------------------------------------------------------ 热加载（向导添加/移除 Hub）
+    def add_hub(self, hub_cfg, adapter: HubAdapter, ukeys=()) -> None:
+        """新增（或替换）一台 Hub：登记适配器并为它的每个端口建记录。"""
+        self.hubs[hub_cfg.name] = adapter
+        self._hub_ok[hub_cfg.name] = True
+        self.sync_ports([hub_cfg], ukeys)
+        self._audit("system", None, None, "hub_added", "ok", hub_cfg.name)
+        self._emit("hub", hub=hub_cfg.name)
+
+    def active_leases_on(self, hub_name: str) -> list[dict]:
+        return [p for p in self.db.list_ports(hub_name) if p["state"] in ("leased", "connected") or self.db.active_lease(p["port_id"])]
+
+    def remove_hub(self, hub_name: str) -> HubAdapter | None:
+        """从调度器移除 Hub（只影响服务器；历史数据保留，Hub 上的配置不动）。调用方须先确认没有活动租约。"""
+        self._hub_ok.pop(hub_name, None)
+        self._audit("system", None, None, "hub_removed", "ok", hub_name)
+        self._emit("hub", hub=hub_name)
+        return self.hubs.pop(hub_name, None)
+
     def group_address(self, port: dict) -> str:
         hub = self.hubs[port["hub"]]
         n = port_for_group(port["grp"])

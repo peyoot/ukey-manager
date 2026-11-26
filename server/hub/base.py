@@ -130,6 +130,14 @@ class HubAdapter(abc.ABC):
         """撤销授权。注意：撤销会立即强制断开已连接的客户端（实测）。"""
 
     @abc.abstractmethod
+    async def set_service_enabled(self, enabled: bool) -> bool:
+        """启用/停用 AnywhereUSB 服务（向导第 3 步的可选项）。返回是否有变更。"""
+
+    @abc.abstractmethod
+    async def service_keys(self) -> list[str]:
+        """`service.anywhereusb` 下的子键，用于向导检查设备配置结构是否与 hub-api-notes.md 一致。"""
+
+    @abc.abstractmethod
     async def backup(self, label: str = "") -> Path: ...
 
     @abc.abstractmethod
