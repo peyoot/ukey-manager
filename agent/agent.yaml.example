@@ -14,3 +14,8 @@ manager:
 
 local_ui_port: 47800                  # agent.exe ui 使用的本机回环端口（仅 127.0.0.1）
 log_dir: 'C:\ProgramData\UKeyAgent\logs'
+
+# 可选项
+hostname: null                        # 留空：用本机主机名（代理 ID = 主机名小写）；Ubuntu 上模拟多个代理时用它区分
+release_policy: accept                # 被问到是否让出 UKey（RELEASE_ASK）时：accept 同意 | deny 拒绝
+connect_retry_seconds: 40             # 刚授权、Manager 还没看到分组时，REFRESH HUBS 并重试 CONNECT 的最长时间

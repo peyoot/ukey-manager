@@ -19,7 +19,7 @@
 | 管理服务器 | ubuntu-srv | **10.70.1.63** | Ubuntu 24.04，Claude Code 在此开发和运行服务器 |
 | Hub | hub-a | **10.70.1.208** | AnywhereUSB Plus **AW08**（8 口），序列号 **AW08-017363** |
 | 客户端 | vm-win-1 | **10.70.1.92** | Windows 10 虚拟机；同时兼作 Windows 构建机（见第 4 节） |
-| 演示用 UKey / U 盘 | — | 插在 hub-a 端口 1、2 | 任意 USB 存储设备也可用于演示；实际端口以用户告知为准 |
+| 演示用 UKey / U 盘 | — | **实测**：hub-a 端口 6 = U 盘，端口 3 = Digi XBee 开发板 | 任意 USB 存储设备也可用于演示；`config.yaml` 的 `test_port` 为 6 |
 | （后续）Hub | hub-b … | | 用控制台"添加 Hub"向导添加 |
 | （后续）客户端 | vm-win-2 … | | 用代理安装脚本添加 |
 
@@ -202,6 +202,14 @@ Manager CLI（服务模式下，请用户执行）：
 - **演示用设备**：hub-a 端口 6 = U 盘（映射为 E:），端口 3 = Digi XBee Micro 开发板。
 
 单 VM 无法真实演示"两个客户端争用"。阶段 2 起用 Ubuntu 上的**模拟代理**（`agent.py --mock-manager`，使用只存在于数据库、不写入 Hub 的虚拟 Client ID）充当第二个客户端验证调度逻辑。
+
+### 阶段 4/5 实测补充（2026-11-26，真实 VM 上发现；详见 docs/e2e-test-report.md）
+
+- **Windows PowerShell 5.1**：`.ps1` 必须是**带 BOM** 的 UTF-8；委托要在 C# 里暴露，不能把 MethodInfo 转成委托；创建服务用 `New-Service`（`sc.exe` 的 binPath 引号会被吃掉）；`-Encoding utf8` 会写 BOM，`agent.yaml` 用无 BOM 写入；查看代理日志用 `Get-Content -Encoding UTF8`。
+- **中文 Windows 默认 GBK**：所有 socket / 文件读写显式指定 UTF-8。
+- **刚授权的分组 Manager 可能暂时看不到**（实测撤销后再授权，立即 CONNECT 返回 FAILED）：代理需 `REFRESH HUBS` 并重试（`connect_retry_seconds`），服务器对 CONNECT 单独等 `lease.connect_timeout_seconds`。
+- `agent/requirements.txt` 必须列全 `agent/` 与 `common/` 的第三方依赖（有测试把关）；PyInstaller 不会因缺依赖而构建失败，所以 `build.ps1` 构建后会自检 `agent.exe version`。
+- 代理 ID = VM 主机名小写（如 `desktop-8ddon30`），不是 `config.yaml` 里 `agents.expected` 的备注名。
 
 ### 阶段 1：Hub 适配器
 
