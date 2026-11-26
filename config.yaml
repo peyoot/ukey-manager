@@ -33,7 +33,7 @@ hubs:
     password_env: HUB_PASSWORD_HUB_A
     tls_verify: false                    # Hub 使用自签证书，仅限演示环境
     awusb_service_port: 18574            # Hub 默认值，以阶段 0 探测结果为准
-    test_port: 1                         # 阶段 0.5 / 1 的真实写操作只允许在此端口
+    test_port: 6                         # 真实写操作默认只允许在此端口（端口 6 = 演示 U 盘；Hub 状态页确认）
   # 后续 Hub 用控制台向导添加，或按同样格式追加：
   # - name: hub-b
   #   address: 10.70.1.x
