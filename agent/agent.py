@@ -21,6 +21,7 @@ import os
 import random
 import socket
 import ssl
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,7 @@ class AgentConfig:
     local_ui_port: int = 47800
     log_dir: str = r"C:\ProgramData\UKeyAgent\logs" if IS_WINDOWS else "agent/logs"
     release_policy: str = "accept"   # RELEASE_ASK 时：accept 同意让出 | deny 拒绝
+    connect_retry_seconds: float = 40.0   # CONNECT 失败时（刚授权、Manager 还没看到分组）刷新并重试的最长时间
     hostname: str = field(default_factory=lambda: socket.gethostname())
     path: str | None = None
 
@@ -70,6 +72,7 @@ class AgentConfig:
             agent_token=raw.get("agent_token") or "", manager_exe=mgr.get("exe_path", DEFAULT_EXE),
             manager_client_id=mgr.get("client_id"), local_ui_port=int(raw.get("local_ui_port", 47800)),
             log_dir=raw.get("log_dir", cls.log_dir), release_policy=raw.get("release_policy", "accept"),
+            connect_retry_seconds=float(raw.get("connect_retry_seconds", 40)),
             hostname=raw.get("hostname") or socket.gethostname(), path=str(path),
         )
 
@@ -114,6 +117,8 @@ class Agent:
         self._pending: dict[str, asyncio.Future] = {}
         self._done: dict[str, P.Envelope] = {}
         self._tasks: set[asyncio.Task] = set()
+        self._inflight: set[str] = set()
+        self.connect_poll = 3.0
         self._stop = asyncio.Event()
 
     # ------------------------------------------------------------------ 工具
@@ -271,6 +276,9 @@ class Agent:
         if env.id in self._done:  # 服务器重发（重试）：回上次的 ACK，不重复执行
             await self._send(self._done[env.id])
             return
+        if env.id in self._inflight:  # 同一指令还在执行（CONNECT 可能要等几十秒）：忽略重发
+            return
+        self._inflight.add(env.id)
         self._spawn(self._handle(env))
 
     async def _handle(self, env: P.Envelope) -> None:
@@ -279,6 +287,7 @@ class Agent:
         except Exception as e:
             log.exception("处理 %s 失败", env.type.value)
             reply = P.ack(env.id, False, f"{type(e).__name__}: {e}"[:200])
+        self._inflight.discard(env.id)
         self._done[env.id] = reply
         while len(self._done) > 500:
             self._done.pop(next(iter(self._done)))
@@ -301,7 +310,7 @@ class Agent:
             cmd = P.GroupCommand.model_validate(pl)
             if not ADDR_RE.match(cmd.group):
                 return P.ack(env.id, False, "invalid group address")
-            fn = self.manager.connect_group if t == MsgType.CONNECT else self.manager.disconnect_group
+            fn = self._connect_with_retry if t == MsgType.CONNECT else self.manager.disconnect_group
             res = await asyncio.to_thread(fn, cmd.group)
             log.info("%s %s -> %s", t.value, cmd.group, "OK" if res.ok else f"FAILED rc={res.rc}")
             kind = "connected" if t == MsgType.CONNECT else "disconnected"
@@ -321,6 +330,17 @@ class Agent:
             rep = await asyncio.to_thread(self.run_setup)
             return P.ack(env.id, rep.ok, None if rep.ok else "setup failed", setup=rep.summary())
         return P.ack(env.id, False, f"unexpected {t.value}")
+
+    def _connect_with_retry(self, address: str):
+        """CONNECT：Hub 刚授权后，本机 Manager 可能还看不到该分组（实测：重新授权后立即连接返回 FAILED）。
+        失败时 REFRESH HUBS 并每隔几秒重试，最多 connect_retry_seconds。"""
+        deadline = time.monotonic() + self.cfg.connect_retry_seconds
+        res = self.manager.connect_group(address)
+        while not res.ok and time.monotonic() < deadline:
+            self.manager.refresh_hubs()
+            time.sleep(self.connect_poll)
+            res = self.manager.connect_group(address)
+        return res
 
     def run_setup(self) -> manager_setup.SetupReport:
         return manager_setup.setup_manager(
@@ -357,7 +377,7 @@ class Agent:
             return {"ok": a.ok, "error": a.error, "ports": a.data.get("ports", [])}
         if cmd in ("request", "release"):
             ref = {k: req[k] for k in ("port_id", "label") if req.get(k)}
-            a = await self.call(MsgType.REQUEST if cmd == "request" else MsgType.RELEASE, P.PortRef(**ref), timeout=30)
+            a = await self.call(MsgType.REQUEST if cmd == "request" else MsgType.RELEASE, P.PortRef(**ref), timeout=120)
             return {"ok": a.ok, "error": a.error, "data": a.data}
         return {"ok": False, "error": "unknown command"}
 

@@ -16,6 +16,7 @@ lease:
   heartbeat_interval_seconds: 15
   heartbeat_timeout_seconds: 45
   command_ack_timeout_seconds: 5
+  connect_timeout_seconds: 60             # CONNECT 的等待上限：刚授权时代理要刷新 Manager 并重试，可能要几十秒
   command_retries: 2
   auto_revoke_orphan_grants: false       # 对账发现无租约的授权时：false 只告警，true 自动回收
 

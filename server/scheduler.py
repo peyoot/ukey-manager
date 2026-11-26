@@ -30,6 +30,7 @@ class Scheduler:
         heartbeat_timeout: float = 45,
         ack_timeout: float = 5,
         retries: int = 2,
+        connect_timeout: float | None = None,
         auto_revoke_orphans: bool = False,
         authorization_mode: str = "dynamic",
         clock: Callable[[], float] = time.time,
@@ -37,6 +38,7 @@ class Scheduler:
         self.db, self.hubs, self.link = db, hubs, link
         self.lease_ttl, self.heartbeat_timeout = lease_ttl, heartbeat_timeout
         self.ack_timeout, self.retries = ack_timeout, retries
+        self.connect_timeout = connect_timeout or ack_timeout   # CONNECT 可能要等代理重试几十秒，单独设置
         self.auto_revoke_orphans = auto_revoke_orphans
         self.authorization_mode = authorization_mode
         self.clock = clock
@@ -179,7 +181,7 @@ class Scheduler:
         self._audit(actor, aid, pid, "grant", "ok", f"{cid} -> {port['grp']}")
         ack = await self.link.send(
             aid, "CONNECT", {"port_id": pid, "group": self.group_address(port), "hub": port["hub"]},
-            timeout=self.ack_timeout, retries=self.retries,
+            timeout=self.connect_timeout, retries=self.retries,
         )
         if not ack.ok:
             try:

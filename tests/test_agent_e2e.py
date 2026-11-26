@@ -19,7 +19,7 @@ from tests.conftest import make_hub
 
 CFG = {
     "hubs": [{"name": "hub-a", "address": "10.70.1.208", "ports": 8, "password_env": "X", "serial": "AW08-A"}],
-    "lease": {"ttl_seconds": 600, "command_ack_timeout_seconds": 0.5, "command_retries": 1,
+    "lease": {"ttl_seconds": 600, "command_ack_timeout_seconds": 0.5, "command_retries": 1, "connect_timeout_seconds": 5,
               "heartbeat_interval_seconds": 1, "heartbeat_timeout_seconds": 2},
     "ukeys": [{"hub": "hub-a", "port": 6, "label": "demo disk"}],
 }
@@ -60,14 +60,16 @@ async def stack(tmp_path):
     s.agents: list[tuple[Agent, asyncio.Task]] = []
     s.tmp = tmp_path
 
-    async def start_agent(name, *, policy="accept", token="tok", manager=None, ui=False, **kw):
+    async def start_agent(name, *, policy="accept", token="tok", manager=None, ui=False, connect_retry=0.3, **kw):
         path = tmp_path / f"{name}.yaml"
         path.write_text(yaml.safe_dump({"server_url": f"ws://{s.addr}/ws/agent", "enrollment_token": token,
                                         "release_policy": policy, "hostname": name}))
         cfg = AgentConfig.load(path)
+        cfg.connect_retry_seconds = connect_retry
         mgr = manager or MockManager(client_id=f"ukey-{name.lower()}")
         ag = Agent(cfg, mgr, MockSystem("service"), base_backoff=0.05, max_backoff=0.2, enroll_poll=0.1, **kw)
         ag.mgr = mgr
+        ag.connect_poll = 0.05
         ag.ui_server = await ag.start_ui(0) if ui else None
         t = asyncio.create_task(ag.run())
         s.agents.append((ag, t))
@@ -258,3 +260,53 @@ def test_enroll_command_is_a_noop_when_already_enrolled(tmp_path, capsys):
     f.write_text("server_url: ws://127.0.0.1:1/ws/agent\nagent_token: abc\nenrollment_token: ''\nhostname: VM\nlog_dir: ''\n")
     assert main(["enroll", "--config", str(f), "--mock-manager"]) == 0     # 不会去连服务器（端口 1 根本连不上）
     assert "已登记" in capsys.readouterr().out
+
+
+async def test_connect_refreshes_and_retries_until_group_becomes_visible(stack):
+    """回归（实测）：撤销后再授权，Manager 没立刻看到分组，CONNECT 返回 FAILED → 申请失败、U 盘没出现。"""
+    mgr = MockManager(client_id="ukey-vm-win-1", hidden_until_refreshes=2)
+    ag = await stack.start_agent("VM-Win-1", manager=mgr, connect_retry=5)
+    assert await wait_for(lambda: ag.registered.is_set())
+    r = await ag._ui_command({"cmd": "request", "port_id": "hub-a-p06"})
+    assert r["ok"] and mgr.connected == {"AW08-A.6"}
+    assert mgr.refreshes == 2 and [c[0] for c in mgr.calls if c[0] in ("connect", "refresh_hubs")] == [
+        "connect", "refresh_hubs", "connect", "refresh_hubs", "connect"]
+    assert stack.db.get_port("hub-a-p06")["state"] == "connected"
+
+
+async def test_connect_gives_up_after_deadline_and_server_rolls_back(stack):
+    mgr = MockManager(client_id="ukey-vm-win-1", hidden_until_refreshes=10**6)
+    ag = await stack.start_agent("VM-Win-1", manager=mgr, connect_retry=0.3)
+    assert await wait_for(lambda: ag.registered.is_set())
+    r = await ag._ui_command({"cmd": "request", "port_id": "hub-a-p06"})
+    assert not r["ok"] and "connect failed" in r["error"] and mgr.refreshes >= 1
+    assert stack.db.get_port("hub-a-p06")["state"] == "idle"
+    assert [c.groups for c in await stack.hub.list_clients()] == [[]]       # 授权已回滚
+
+
+async def test_resent_connect_while_still_running_is_not_executed_twice():
+    from common import protocol as P
+    from common.protocol import MsgType
+
+    mgr = MockManager(client_id="c", hidden_until_refreshes=2)
+    cfg = AgentConfig(hostname="vm", connect_retry_seconds=5)
+    ag = Agent(cfg, mgr, MockSystem("service"))
+    ag.connect_poll = 0.1
+    sent = []
+
+    class WS:
+        async def send(self, data):
+            sent.append(P.decode(data))
+
+    ag.ws = WS()
+    env = P.make(MsgType.CONNECT, P.GroupCommand(port_id="hub-a-p06", group="AW08-A.6", hub="hub-a"))
+    raw = P.encode(env)
+    await ag._on_message(raw)
+    await asyncio.sleep(0.05)
+    await ag._on_message(raw)          # 服务器重发：同 id，第一次还在重试中
+    await wait_for(lambda: any(m.type == MsgType.ACK for m in sent), 5)
+    await ag._on_message(raw)          # 完成后再重发：回放上次的 ACK，不再执行
+    await asyncio.sleep(0.05)
+    assert len([c for c in mgr.calls if c[0] == "connect"]) == 3             # 只执行了一轮（失败、失败、成功）
+    acks = [m for m in sent if m.type == MsgType.ACK]
+    assert len(acks) == 2 and acks[0].payload == acks[1].payload and acks[0].payload["ok"] is True

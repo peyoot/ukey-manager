@@ -70,6 +70,7 @@ def create_app(
         lease_ttl=lease.get("ttl_seconds", 600),
         heartbeat_timeout=lease.get("heartbeat_timeout_seconds", 45),
         ack_timeout=lease.get("command_ack_timeout_seconds", 5),
+        connect_timeout=lease.get("connect_timeout_seconds", 60),
         retries=lease.get("command_retries", 2),
         auto_revoke_orphans=lease.get("auto_revoke_orphan_grants", False),
         authorization_mode=clients.get("authorization_mode", "dynamic"),

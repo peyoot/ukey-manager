@@ -28,12 +28,14 @@ class FakeLink:
         self.drop: set[str] = set()      # 这些代理收到指令但不响应（超时）
         self.fail_types: set[str] = set()  # 这些指令类型 ACK ok=False
         self.accept_release = True
+        self.timeouts: dict[str, float] = {}
 
     def is_online(self, agent_id):
         return agent_id in self.online
 
     async def send(self, agent_id, msg_type, payload, *, timeout, retries):
         self.sent.append((agent_id, msg_type, payload))
+        self.timeouts[msg_type] = timeout
         if agent_id in self.drop or agent_id not in self.online:
             return Ack(False, "timeout")
         if msg_type in self.fail_types:

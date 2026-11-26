@@ -213,6 +213,10 @@ class ManagerCli:
         r = self.run("KNOWN", "HUB", "LIST")
         return [ln.strip() for ln in r.out.splitlines() if ln.strip() and not ln.startswith("ERROR")]
 
+    def refresh_hubs(self) -> CliResult:
+        """让 Manager 立即重新读取 Hub 的分组授权（授权刚变更后，Manager 可能还没看到新分组）。"""
+        return self.run("REFRESH", "HUBS")
+
     def autofind_off(self) -> CliResult:
         return self.run("AUTOFIND,OFF")
 

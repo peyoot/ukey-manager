@@ -9,6 +9,13 @@ async def grants(hub):
     return {c.id: c.groups for c in await hub.list_clients()}
 
 
+async def test_connect_waits_longer_than_other_commands(env):
+    env.sched.connect_timeout = 7.0      # 代理刷新 Manager 并重试可能要几十秒
+    await env.sched.request("vm-win-1", "hub-a-p06")
+    await env.sched.release("vm-win-1", "hub-a-p06")
+    assert env.link.timeouts["CONNECT"] == 7.0 and env.link.timeouts["DISCONNECT"] == env.sched.ack_timeout
+
+
 async def test_sync_ports_and_labels(env):
     ports = env.db.list_ports()
     assert len(ports) == 12 and {p["hub"] for p in ports} == {"hub-a", "hub-b"}

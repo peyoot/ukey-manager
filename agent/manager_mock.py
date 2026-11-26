@@ -9,7 +9,8 @@ from .manager_cli import ADDR_RE, CLIENT_ID_RE, CliResult, Group, Hub, ListInfo
 
 
 class MockManager:
-    def __init__(self, client_id: str = "", *, visible: set[str] | None = None, serial: str = "AW08-MOCK"):
+    def __init__(self, client_id: str = "", *, visible: set[str] | None = None, serial: str = "AW08-MOCK",
+                 hidden_until_refreshes: int = 0):
         self.client_id = client_id
         self.known_hubs: list[str] = []
         self.autofind = True
@@ -18,6 +19,8 @@ class MockManager:
         self.serial = serial
         self.calls: list[tuple] = []
         self.fail_connect = False
+        self.hidden_until_refreshes = hidden_until_refreshes   # 模拟"刚授权、Manager 还没看到分组"：刷新够次数后才能连
+        self.refreshes = 0
 
     def _log(self, *a):
         self.calls.append(a)
@@ -32,7 +35,7 @@ class MockManager:
     def connect_group(self, address: str) -> CliResult:
         assert ADDR_RE.match(address), address
         self._log("connect", address)
-        if self.fail_connect or (self.visible is not None and address not in self.visible):
+        if self.refreshes < self.hidden_until_refreshes or self.fail_connect or (self.visible is not None and address not in self.visible):
             return CliResult(1, "FAILED\n")
         self.connected.add(address)
         return CliResult(0, "OK\n")
@@ -51,6 +54,11 @@ class MockManager:
 
     def known_hub_list(self) -> list[str]:
         return list(self.known_hubs)
+
+    def refresh_hubs(self) -> CliResult:
+        self._log("refresh_hubs")
+        self.refreshes += 1
+        return CliResult(0, "OK\n")
 
     def autofind_off(self) -> CliResult:
         self._log("autofind_off")
