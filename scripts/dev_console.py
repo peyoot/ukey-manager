@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """用 mock Hub 起一个完整的控制台（HTTP、无真实设备），用来看页面 / 排练演示 / 浏览器里点向导。
 
-  python scripts/dev_console.py [--port 8470]
-登录：admin / demo（仅本机演示）。数据全在临时目录，不会碰真实 Hub、config.yaml 和 .env。
+  python scripts/dev_console.py [--port 8470] [--host 0.0.0.0]
+默认只监听本机，登录 admin / demo。--host 非回环地址（让别的机器能打开）时，会生成随机密码并打印，且仍是明文 HTTP，仅限内网演示。数据全在临时目录，不会碰真实 Hub、config.yaml 和 .env。
 """
 import argparse
 import asyncio
+import secrets
 import shutil
 import tempfile
 from pathlib import Path
@@ -33,10 +34,12 @@ class DemoLink(AgentHub):
         return Ack(True, payload={"accept": True})
 
 
-async def main(port: int) -> None:
+async def main(port: int, host: str) -> None:
     tmp = Path(tempfile.mkdtemp(prefix="ukey-dev-"))
     shutil.copy(ROOT / "config.yaml", tmp / "config.yaml")
-    (tmp / ".env").write_text("HUB_PASSWORD_HUB_A=demo\nCONSOLE_ADMIN_PASSWORD=demo\n")
+    local = host in ("127.0.0.1", "localhost", "::1")
+    password = "demo" if local else secrets.token_urlsafe(9)
+    (tmp / ".env").write_text("HUB_PASSWORD_HUB_A=demo\nCONSOLE_ADMIN_PASSWORD=" + password + "\n")
     cfg = load_config(tmp / "config.yaml")
     hub_a = MockHub("hub-a", ports=8, serial="AW08-017363", backup_dir=tmp / "backups")
     for p in range(1, 9):
@@ -53,18 +56,21 @@ async def main(port: int) -> None:
 
     db = Db(tmp / "ukey.db")
     link = DemoLink(db, enrollment_token="demo", hubs_info=[])
-    app = create_app(cfg, {"hub-a": hub_a}, link, db, admin_user="admin", admin_password="demo", session_secret="d" * 32,
+    app = create_app(cfg, {"hub-a": hub_a}, link, db, admin_user="admin", admin_password=password, session_secret="d" * 32,
                      cookie_secure=False, background=True, base_dir=tmp, config_path=tmp / "config.yaml",
                      env_path=tmp / ".env", backup_dir=tmp / "backups", hub_factory=factory)
     sched = app.state.scheduler
     sched.register_agent("vm-win-1", "vm-win-1", "10.70.1.92", "ukey-vm-win-1", ["10.70.1.92"], {"manager_mode": "service", "manager_version": "3.1.39.6"})
     sched.register_agent("vm-win-2", "vm-win-2", "10.70.1.93", "ukey-vm-win-2", [], {"manager_mode": "standalone"})
     await sched.request("vm-win-1", "hub-a-p06")
-    print(f"控制台： http://127.0.0.1:{port}/   登录 admin / demo   （添加 Hub 向导：地址 10.70.1.209 密码 hubb）\n临时目录：{tmp}")
-    await uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")).serve()
+    shown = "<服务器IP>" if host == "0.0.0.0" else host
+    print(f"控制台： http://{shown}:{port}/   登录 admin / {password}   （添加 Hub 向导：地址 10.70.1.209 密码 hubb）\n临时目录：{tmp}", flush=True)
+    await uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="warning")).serve()
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8470)
-    asyncio.run(main(ap.parse_args().port))
+    ap.add_argument("--host", default="127.0.0.1")
+    a = ap.parse_args()
+    asyncio.run(main(a.port, a.host))
