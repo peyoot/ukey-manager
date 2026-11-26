@@ -348,8 +348,9 @@ pip install -r requirements-server.txt
 cp .env.example .env && chmod 600 .env      # 用户填写
 bash scripts/gen_cert.sh                     # 生成 certs/server.crt / server.key
 pytest -q                                    # 单元测试（全 mock）
-uvicorn server.app:app --host 0.0.0.0 --port 8443 \
-  --ssl-certfile certs/server.crt --ssl-keyfile certs/server.key
+python -m server        # 读取 config.yaml 的 server 段（HTTPS、端口、证书）；等价于
+# uvicorn server.app:create_default_app --factory --host 0.0.0.0 --port 8443 \
+#   --ssl-certfile certs/server.crt --ssl-keyfile certs/server.key
 python agent/agent.py --config agent/agent.yaml --mock-manager   # Ubuntu 上模拟代理
 ```
 
