@@ -210,3 +210,42 @@ async def test_run_setup_from_server_runs_setup_manager(stack):
         assert r.status_code == 200
         r = await c.post("/api/agents/ghost/run-setup")
         assert r.status_code == 409
+
+
+def test_ui_ask_decodes_utf8_regardless_of_locale_default():
+    """回归：中文 Windows 默认 GBK，makefile() 不指定编码就会在解码中文标签时崩溃。"""
+    import io
+
+    from agent.agent import ui_ask
+
+    payload = (json.dumps({"ok": True, "ports": [{"label": "演示 U 盘（端口 6）"}]}, ensure_ascii=False) + "\n").encode("utf-8")
+
+    class FakeSock:
+        sent = b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def sendall(self, b):
+            FakeSock.sent += b
+
+        def makefile(self, mode="r", **kw):
+            assert kw.get("encoding") == "utf-8", "必须显式指定 UTF-8"
+            return io.TextIOWrapper(io.BytesIO(payload), encoding=kw["encoding"], errors=kw.get("errors", "strict"))
+
+    r = ui_ask(1, {"cmd": "ports", "label": "演示 U 盘"}, create=lambda *a, **k: FakeSock())
+    assert r["ports"][0]["label"] == "演示 U 盘（端口 6）"
+    assert json.loads(FakeSock.sent.decode("utf-8"))["label"] == "演示 U 盘"
+
+
+def test_ui_ask_returns_error_instead_of_raising_when_service_is_down():
+    from agent.agent import ui_ask
+
+    def boom(*a, **k):
+        raise ConnectionRefusedError("refused")
+
+    r = ui_ask(47800, {"cmd": "status"}, create=boom)
+    assert r["ok"] is False and "连接不上" in r["error"]

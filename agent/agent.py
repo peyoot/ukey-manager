@@ -372,32 +372,45 @@ def _local_ip() -> str:
 
 
 # ====================================================================== `agent.exe ui`
+def ui_ask(port: int, req: dict, create=socket.create_connection) -> dict:
+    """向本机代理服务发一条请求（一行 JSON）。编码固定 UTF-8：中文 Windows 的默认编码是 GBK，
+    不显式指定会在解码服务器返回的中文时崩溃（实测）。"""
+    try:
+        with create(("127.0.0.1", port), timeout=10) as s:
+            s.sendall((json.dumps(req, ensure_ascii=False) + "\n").encode("utf-8"))
+            line = s.makefile("r", encoding="utf-8", errors="replace").readline()
+            return json.loads(line or "{}")
+    except (OSError, ValueError) as e:
+        return {"ok": False, "error": f"连接不上本机代理服务（端口 {port}）: {type(e).__name__}: {e}"}
+
+
 def ui_main(port: int) -> int:
     """命令行菜单：列出可用 UKey / 申请 / 释放 / 状态（经 127.0.0.1 与代理服务通信）。"""
-    def ask(req: dict) -> dict:
+    for stream in (sys.stdout, sys.stderr):   # 控制台编码放不下的字符用 ? 代替，而不是崩溃
         try:
-            with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
-                s.sendall((json.dumps(req) + "\n").encode())
-                return json.loads(s.makefile().readline() or "{}")
-        except OSError as e:
-            return {"ok": False, "error": f"连接不上本机代理服务（端口 {port}）: {e}"}
-
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+    ask = lambda req: ui_ask(port, req)  # noqa: E731
     while True:
         print("\n1) 列出 UKey  2) 申请  3) 释放  4) 本机状态  0) 退出")
-        c = input("> ").strip()
+        try:
+            c = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return 0
         if c == "0":
             return 0
         if c == "1":
             r = ask({"cmd": "ports"})
             for p in r.get("ports", []):
                 print(f"  {p['port_id']:<12} {p['state']:<10} {p.get('label') or ''}{'  (我持有)' if p.get('mine') else ''}")
-            if not r["ok"]:
+            if not r.get("ok"):
                 print("  失败:", r.get("error"))
         elif c in ("2", "3"):
             target = input("端口 ID 或 UKey 名称: ").strip()
             ref = {"port_id": target} if "-p" in target else {"label": target}
             r = ask({"cmd": "request" if c == "2" else "release", **ref})
-            print("  成功" if r["ok"] else f"  失败: {r.get('error')} {r.get('data') or ''}")
+            print("  成功" if r.get("ok") else f"  失败: {r.get('error')} {r.get('data') or ''}")
         elif c == "4":
             print(json.dumps(ask({"cmd": "status"}), ensure_ascii=False, indent=2))
 
