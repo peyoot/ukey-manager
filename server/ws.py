@@ -283,6 +283,13 @@ class AgentHub:
             ok = res["status"] == "ok"
             err = None if ok else (res.get("error") or res["status"])
             return P.ack(env.id, ok, err, status=res["status"], port_id=port_id, holder=res.get("holder"))
+        if t == MsgType.LIST:
+            ports = [
+                {"port_id": p["port_id"], "hub": p["hub"], "port": p["port"], "label": p["label"], "state": p["state"],
+                 "holder": p["agent_id"], "mine": p["agent_id"] == aid}
+                for p in self.db.list_ports()
+            ]
+            return P.ack(env.id, ports=ports)
         if t == MsgType.EVENT:
             ev = P.Event.model_validate(env.payload)
             self.db.audit("agent", aid, ev.port_id, f"event_{ev.kind}", "ok" if ev.kind != "error" else "error",

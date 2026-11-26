@@ -8,13 +8,16 @@
 
 import asyncio
 import contextlib
+import hashlib
 import hmac
 import os
 import time
+from pathlib import Path
 from typing import Annotated
 
 from dotenv import dotenv_values
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response, WebSocket
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from pydantic import BaseModel
 
@@ -50,6 +53,7 @@ def create_app(
     session_secret: str,
     cookie_secure: bool = True,
     background: bool = True,
+    base_dir: Path | None = None,
 ) -> FastAPI:
     raw = cfg.model_extra or {}
     lease = raw.get("lease", {})
@@ -191,6 +195,67 @@ def create_app(
             await ws.close(1013)
             return
         await link.handle(ws)
+
+    # ---------------------------------------------------------------- 代理下载（只读，来自 dist/，无需登录）
+    base = Path(base_dir) if base_dir else ROOT
+    mgr_cfg, agent_cfg = raw.get("manager_installer", {}), raw.get("agent_package", {})
+    public_url = raw.get("server", {}).get("public_url", "https://localhost:8443")
+    sha_cache: dict[str, tuple[tuple, str]] = {}
+
+    def sha256_of(path: Path) -> str:
+        st = path.stat()
+        key = (st.st_mtime_ns, st.st_size)
+        hit = sha_cache.get(str(path))
+        if hit and hit[0] == key:
+            return hit[1]
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        sha_cache[str(path)] = (key, h.hexdigest())
+        return h.hexdigest()
+
+    def agent_exe() -> Path | None:
+        p = base / agent_cfg.get("file", "dist/agent.exe")
+        return p if p.is_file() else None
+
+    def manager_installer() -> tuple[Path | None, str | None]:
+        p = base / mgr_cfg.get("file", "")
+        want = (mgr_cfg.get("sha256") or "").lower()
+        return (p if mgr_cfg.get("file") and p.is_file() else None), want or None
+
+    @app.get("/agent/manifest.json")
+    async def manifest():
+        a = agent_exe()
+        m, want = manager_installer()
+        return {
+            "server_url": public_url.replace("https://", "wss://").replace("http://", "ws://") + "/ws/agent",
+            "api_url": public_url,
+            "agent": {"available": bool(a), "sha256": sha256_of(a) if a else None, "size": a.stat().st_size if a else None},
+            "manager": {"available": bool(m), "sha256": want,
+                        "verified": bool(m and want and sha256_of(m) == want)},
+        }
+
+    @app.get("/agent/agent.exe")
+    async def dl_agent():
+        a = agent_exe()
+        if not a:
+            raise HTTPException(404, "agent.exe 尚未构建（见 CLAUDE.md 第 4 节）")
+        return FileResponse(a, media_type="application/octet-stream", filename="agent.exe")
+
+    @app.get("/agent/manager-installer")
+    async def dl_manager():
+        m, want = manager_installer()
+        if not m:
+            raise HTTPException(404, "Digi 官方安装包不在服务器 dist/ 中")
+        if not want or sha256_of(m) != want:  # 与配置的 SHA-256 不符就拒绝提供
+            raise HTTPException(409, "安装包 SHA-256 与 config.yaml 不符，拒绝提供")
+        return FileResponse(m, media_type="application/octet-stream", filename="manager-installer.exe")
+
+    @app.get("/agent/install.ps1")
+    async def dl_install():
+        script = (Path(__file__).resolve().parent.parent / "agent" / "installer" / "install-agent.ps1").read_text(encoding="utf-8")
+        return PlainTextResponse(script.replace("__SERVER_URL__", public_url), media_type="text/plain; charset=utf-8")
 
     # ---------------------------------------------------------------- 审计与 Hub
     @app.get("/api/audit")

@@ -1,0 +1,69 @@
+ AnywhereUSB Manager version 3.1.39.6 Client ID: ukey-vm-win-1
+Below are the available devices:
+
+ AW08-017363 (10.70.1.208:18574)
+  NAME: AW08-017363
+  MODEL: AnywhereUSB 8 Plus
+  VERSION: 26.2.148.166 awusb -- Mon, 24 Aug 2026 00:50:09 +0000
+  STATE: Active (secure)
+  ADDRESS: 10.70.1.208 (SSL Subject:/C=US/ST=MN/L=Hopkins/O=Digi International Inc. ,Issuer:/C=US/ST=MN/L=Hopkins/O=Digi International Inc.) (10.70.1.208)
+  PORT: 18574
+  CONNECTED FOR: 408808 sec
+  CONNECTION ID: 1
+  INTERFACE: eth1
+  SERIAL NUMBER: AW08-017363
+  AUTOCONNECT: disabled
+
+    hub-a-p02 (AW08-017363.2)
+      ADDRESS: AW08-017363.2
+      GROUP: 2
+      NAME: hub-a-p02
+      PORTS: 2
+      AUTOCONNECT: disabled
+      IN USE BY: NO ONE
+
+    hub-a-p03 (AW08-017363.3)
+      ADDRESS: AW08-017363.3
+      GROUP: 3
+      NAME: hub-a-p03
+      PORTS: 3
+      AUTOCONNECT: disabled
+      IN USE BY: NO ONE
+
+        XBee Micro Development Board (AW08-017363.1703)
+          ADDRESS: AW08-017363.1703
+          VENDOR: Digi
+          VENDOR ID: 0x0403
+          PRODUCT: XBee Micro Development Board
+          PRODUCT ID: 0x6001
+          PORT ON HUB: 3
+          AUTOCONNECT: disabled
+          IN USE BY: NO ONE
+          SPEED: FULL
+
+    hub-a-p06 (AW08-017363.6) (In-use by you)
+      ADDRESS: AW08-017363.6
+      GROUP: 6
+      NAME: hub-a-p06
+      PORTS: 6
+      AUTOCONNECT: disabled
+      IN USE BY: YOU
+
+        Disk 20 (AW08-017363.2006) (In-use by you)
+          ADDRESS: AW08-017363.2006
+          VENDOR: USB
+          VENDOR ID: 0x346d
+          PRODUCT: Disk 20
+          PRODUCT ID: 0x5678
+          SERIAL: FC1575EA0B448
+          PORT ON HUB: 6
+          ASSIGNED VIRTUAL PORT: 128
+          AUTOCONNECT: disabled
+          IN USE BY: YOU
+          SPEED: SUPERSPEED
+
+
+* means Autoconnect enabled, + means Autoconnect inherited
+Autofind: disabled  Use All Hub Addresses: disabled
+Autoconnect All: disabled
+AnywhereUSB Manager is running as a service

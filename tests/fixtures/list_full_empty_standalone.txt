@@ -1,0 +1,8 @@
+ AnywhereUSB Manager version 3.1.39.6 Client ID:
+Below are the available devices:
+
+
+* means Autoconnect enabled, + means Autoconnect inherited
+Autofind: enabled   Use All Hub Addresses: disabled
+Autoconnect All: disabled
+AnywhereUSB Manager is running as a service

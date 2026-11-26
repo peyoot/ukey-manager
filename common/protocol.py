@@ -33,6 +33,7 @@ class MsgType(str, Enum):
     RELEASE_ASK = "RELEASE_ASK"  # 服务器→代理
     NOTIFY = "NOTIFY"          # 服务器→代理
     RUN_SETUP = "RUN_SETUP"    # 服务器→代理
+    LIST = "LIST"              # 代理→服务器：查询可用端口（agent.exe ui 用）
     ACK = "ACK"                # 双向
 
 
@@ -125,7 +126,7 @@ PAYLOADS: dict[MsgType, type[BaseModel] | None] = {
     MsgType.ENROLL: Enroll, MsgType.REGISTER: Register, MsgType.CONFIG: Config,
     MsgType.HEARTBEAT: Heartbeat, MsgType.REQUEST: PortRef, MsgType.RELEASE: PortRef,
     MsgType.EVENT: Event, MsgType.CONNECT: GroupCommand, MsgType.DISCONNECT: GroupCommand,
-    MsgType.RELEASE_ASK: ReleaseAsk, MsgType.NOTIFY: Notify, MsgType.RUN_SETUP: None, MsgType.ACK: Ack,
+    MsgType.RELEASE_ASK: ReleaseAsk, MsgType.NOTIFY: Notify, MsgType.RUN_SETUP: None, MsgType.LIST: None, MsgType.ACK: Ack,
 }
 
 # 服务器必须收到 ACK 的指令
