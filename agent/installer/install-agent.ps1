@@ -106,11 +106,12 @@ Step "写入配置 $DataDir\agent.yaml"
 $cfgPath = "$DataDir\agent.yaml"
 $keepToken = ""
 if ((Test-Path $cfgPath) -and (Select-String -Path $cfgPath -Pattern '^agent_token:\s*\S+' -Quiet)) { $keepToken = (Select-String -Path $cfgPath -Pattern '^agent_token:\s*(\S+)').Matches[0].Groups[1].Value }
+$enrollField = if ($keepToken) { "" } else { $EnrollmentToken }   # 升级时已有专属 token，不再保存注册令牌
 $yaml = @"
 server_url: $wsUrl
 api_url: $($ServerUrl.TrimEnd('/'))
 $caLine
-enrollment_token: '$EnrollmentToken'
+enrollment_token: '$enrollField'
 agent_token: '$keepToken'
 manager:
   exe_path: 'C:\Program Files\Digi\AnywhereUSBManager\awusbmanager.exe'

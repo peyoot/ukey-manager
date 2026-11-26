@@ -249,3 +249,12 @@ def test_ui_ask_returns_error_instead_of_raising_when_service_is_down():
 
     r = ui_ask(47800, {"cmd": "status"}, create=boom)
     assert r["ok"] is False and "连接不上" in r["error"]
+
+
+def test_enroll_command_is_a_noop_when_already_enrolled(tmp_path, capsys):
+    from agent.agent import main
+
+    f = tmp_path / "agent.yaml"
+    f.write_text("server_url: ws://127.0.0.1:1/ws/agent\nagent_token: abc\nenrollment_token: ''\nhostname: VM\nlog_dir: ''\n")
+    assert main(["enroll", "--config", str(f), "--mock-manager"]) == 0     # 不会去连服务器（端口 1 根本连不上）
+    assert "已登记" in capsys.readouterr().out

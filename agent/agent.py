@@ -476,6 +476,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"日志目录: {cfg.log_dir}")
         return 0 if rep.ok else (3 if rep.needs_confirmation else 1)
     if a.command == "enroll":
+        if cfg.agent_token:   # 升级/重装：已经有专属 token，不要再 ENROLL（服务器会因 already enrolled 拒绝并刷审计）
+            print("已登记：配置里已有专属 token，无需再次登记")
+            return 0
         agent = Agent(cfg, manager, system)
         ok = asyncio.run(agent.enroll_once())
         print("已批准并保存 token" if ok else "已提交，等待管理员批准（或被拒绝，见日志）")
