@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections import defaultdict
 from typing import Callable
@@ -93,6 +94,9 @@ class Scheduler:
             return None, "agent not approved"
         if not a["client_id"]:
             return None, "agent has no client_id"
+        mode = json.loads(a.get("info") or "{}").get("manager_mode")
+        if mode and mode != "service":
+            return None, f"manager not ready (mode={mode})"
         if not self.link.is_online(agent_id) or not a["online"]:
             return None, "agent offline"
         return a, None

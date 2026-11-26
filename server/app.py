@@ -14,7 +14,7 @@ import time
 from typing import Annotated
 
 from dotenv import dotenv_values
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Response, WebSocket
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from pydantic import BaseModel
 
@@ -22,7 +22,8 @@ from .config import ROOT, AppConfig, hub_password, load_config
 from .db import Db
 from .hub.base import HubAdapter
 from .hub.factory import create_hub
-from .link import AgentLink, NullLink
+from .link import AgentLink
+from .ws import AgentHub
 from .scheduler import Scheduler
 
 SESSION_COOKIE = "ukey_session"
@@ -63,6 +64,8 @@ def create_app(
         authorization_mode=clients.get("authorization_mode", "dynamic"),
     )
     sched.sync_ports(cfg.hubs, raw.get("ukeys", []))
+    if hasattr(link, "bind"):
+        link.bind(sched)
     signer = URLSafeTimedSerializer(session_secret, salt="ukey-console")
     sweep_interval = max(1.0, lease.get("heartbeat_interval_seconds", 15) / 3)
 
@@ -164,6 +167,31 @@ def create_app(
             raise HTTPException(404, "unknown agent")
         return {"ok": True}
 
+    @app.post("/api/agents/{agent_id}/run-setup")
+    async def run_setup(agent_id: str, user: Admin):
+        if not hasattr(link, "run_setup"):
+            raise HTTPException(503, "agent channel not available")
+        a = await link.run_setup(agent_id)
+        db.audit(user, agent_id, None, "run_setup", "ok" if a.ok else "error", a.error)
+        if not a.ok:
+            raise HTTPException(409, a.error or "failed")
+        return {"ok": True}
+
+    @app.post("/api/agents/{agent_id}/reset-token")
+    async def reset_token(agent_id: str, user: Admin):
+        if not db.get_agent(agent_id):
+            raise HTTPException(404, "unknown agent")
+        db.set_agent(agent_id, token_hash=None)
+        db.audit(user, agent_id, None, "reset_token", "ok", "agent must ENROLL again")
+        return {"ok": True}
+
+    @app.websocket("/ws/agent")
+    async def ws_agent(ws: WebSocket):
+        if not hasattr(link, "handle"):
+            await ws.close(1013)
+            return
+        await link.handle(ws)
+
     # ---------------------------------------------------------------- 审计与 Hub
     @app.get("/api/audit")
     async def audit(user: Admin, limit: int = 200, port_id: str | None = None):
@@ -194,8 +222,21 @@ def create_default_app() -> FastAPI:
             raise RuntimeError(f"{key} 未设置（应在 .env 中）")
     server = (cfg.model_extra or {}).get("server", {})
     hubs = {h.name: create_hub(h, hub_password(h)) for h in cfg.hubs}  # 写保护由调用方按需设置
+    raw = cfg.model_extra or {}
+    agents_cfg, lease, clients = raw.get("agents", {}), raw.get("lease", {}), raw.get("clients", {})
+    token_env = agents_cfg.get("enrollment_token_env", "AGENT_ENROLLMENT_TOKEN")
+    if not env.get(token_env):
+        raise RuntimeError(f"{token_env} 未设置（应在 .env 中）")
+    link = AgentHub(
+        db := Db(ROOT / server.get("database", "data/ukey.db")),
+        enrollment_token=env[token_env],
+        auto_approve_ips=agents_cfg.get("auto_approve_ips", []),
+        hubs_info=[{"name": h.name, "address": h.address, "port": h.awusb_service_port, "serial": h.serial} for h in cfg.hubs],
+        heartbeat_interval=lease.get("heartbeat_interval_seconds", 15),
+        client_id_pattern=clients.get("client_id_pattern", "ukey-{hostname}"),
+    )
     return create_app(
-        cfg, hubs, NullLink(), Db(ROOT / server.get("database", "data/ukey.db")),
+        cfg, hubs, link, db,
         admin_user=server.get("console_admin_user", "admin"),
         admin_password=env["CONSOLE_ADMIN_PASSWORD"],
         session_secret=env["SESSION_SECRET"],
