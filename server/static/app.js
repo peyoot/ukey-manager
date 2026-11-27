@@ -3,7 +3,7 @@
   "use strict";
   const $ = (s, r = document) => r.querySelector(s);
   const STATE_TEXT = { idle: "空闲", leased: "已分配", connected: "已连接", fault: "故障" };
-  const PAGES = ["ports", "agents", "hubs", "audit"];
+  const PAGES = ["ports", "use", "agents", "hubs", "audit"];
 
   function h(tag, attrs, ...kids) {
     const el = document.createElement(tag);
@@ -78,6 +78,7 @@
 
   async function refresh() {
     if (S.page === "ports") await loadPorts();
+    else if (S.page === "use") await loadUse();
     else if (S.page === "agents") await loadAgents();
     else if (S.page === "hubs") await loadHubs();
     else if (S.page === "audit") await loadAudit();
@@ -164,6 +165,72 @@
     const r = await api("POST", `/api/ports/${encodeURIComponent(p.port_id)}/force-release`);
     if (!r.ok) alert("回收失败：" + errText(r));
     loadPorts();
+  }
+
+  // ------------------------------------------------------------------ 申请 UKey（使用者视图）
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (_) { /* ignore */ } },
+  };
+  async function loadUse() {
+    if (S.useBusy) return;   // 申请进行中不重绘，避免按钮状态丢失
+    const [p, a] = await Promise.all([api("GET", "/api/ports"), api("GET", "/api/agents")]);
+    if (!p.ok) return;
+    S.ports = p.data; S.agents = a.data || [];
+    renderUse();
+  }
+  function renderUse() {
+    const root = clear($("#page-use"));
+    const usable = S.agents.filter((a) => a.status === "approved" && a.online);
+    let target = store.get("ukey.target");
+    if (!usable.some((a) => a.agent_id === target)) target = usable.length ? usable[0].agent_id : null;
+    const sel = h("select", { onchange: (e) => { store.set("ukey.target", e.target.value); renderUse(); } },
+      usable.map((a) => h("option", { value: a.agent_id, selected: a.agent_id === target }, `${a.agent_id}${a.ip ? "（" + a.ip + "）" : ""}`)));
+    const msg = h("div", { id: "use-msg", class: "notice hidden" });
+    root.append(h("h2", {}, "申请 UKey"),
+      h("div", { class: "panel" },
+        usable.length ? h("label", {}, "把 UKey 连接到这台电脑：", sel)
+          : h("p", { class: "warn" }, "当前没有在线且已批准的代理，无法申请。请先在客户端安装并批准代理。")),
+      msg);
+    const ports = [...S.ports].sort((x, y) => (!!y.label - !!x.label) || x.port_id.localeCompare(y.port_id));
+    const names = [...new Set(ports.map((x) => x.hub))];
+    for (const name of names) {
+      root.append(h("div", { class: "panel" }, h("h3", {}, name),
+        h("div", { class: "grid" }, ports.filter((x) => x.hub === name).map((p) => useCard(p, target, msg)))));
+    }
+    root.append(h("p", { class: "muted" }, "申请成功后，设备会出现在所选电脑上（如资源管理器里的新盘符）。设备被别的电脑占用时，会请对方让出，对方同意后自动转给你；强制回收仅在「端口总览」里提供。"));
+  }
+  function useCard(p, target, msg) {
+    const mine = target && p.agent_id === target && p.state !== "idle";
+    let btn;
+    if (p.state === "fault") btn = h("button", { disabled: true }, "故障，不可用");
+    else if (mine) btn = h("button", { class: "secondary", disabled: !target, onclick: (e) => useAct(e.target, p, target, "release", msg) }, "释放");
+    else btn = h("button", { disabled: !target, onclick: (e) => useAct(e.target, p, target, "request", msg) }, p.state === "idle" ? "申请" : "申请（请对方让出）");
+    return h("div", { class: "card " + p.state },
+      h("div", { class: "num" }, p.label || `端口 ${p.port}`),
+      h("div", { class: "label" }, `${p.port_id}`),
+      h("div", { class: "state" }, STATE_TEXT[p.state] || p.state),
+      h("div", { class: "who" }, p.agent_id || " "),
+      p.lease_expires_at && p.state !== "idle" ? h("div", { class: "who", "data-expires": p.lease_expires_at }, "剩余 " + fmtLeft(p.lease_expires_at)) : null,
+      btn);
+  }
+  function useNote(msg, text, bad) {
+    msg.textContent = text;
+    msg.className = "notice" + (bad ? " bad" : "");
+  }
+  async function useAct(btn, p, target, action, msg) {
+    S.useBusy = true;
+    document.querySelectorAll("#page-use button").forEach((b) => { b.disabled = true; });
+    useNote(msg, action === "request" ? `正在向 ${target} 申请 ${p.port_id}，可能需要十几秒…` : `正在释放 ${p.port_id}…`);
+    const r = await api("POST", `/api/ports/${encodeURIComponent(p.port_id)}/${action}`, { agent_id: target });
+    S.useBusy = false;
+    await loadUse();
+    const m = $("#use-msg");
+    if (!m) return;
+    const d = r.data && r.data.detail;
+    if (r.ok) useNote(m, action === "request" ? `已申请 ${p.port_id}。` : `已释放 ${p.port_id}。`);
+    else if (r.status === 409 && d && d.status === "busy") useNote(m, `${p.port_id} 正被 ${d.holder || "他人"} 使用${d.asked ? "，已请对方让出，请稍后重试" : ""}。`, true);
+    else useNote(m, `${action === "request" ? "申请" : "释放"}失败：` + errText(r), true);
   }
 
   // ------------------------------------------------------------------ 代理

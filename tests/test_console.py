@@ -120,3 +120,13 @@ async def test_closed_console_ws_is_cleaned_up(live):
     await asyncio.sleep(0.1)
     await sched.request("vm1", "hub-a-p06")      # 已断开的订阅者不会让调度出错
     assert sched.db.get_port("hub-a-p06")["state"] == "connected"
+
+
+def test_use_page_is_wired_in_nav_and_router():
+    html = Path("server/static/index.html").read_text(encoding="utf-8")
+    js = Path("server/static/app.js").read_text(encoding="utf-8")
+    assert 'data-page="use"' in html and 'id="page-use"' in html
+    assert '"use"' in js and "loadUse" in js
+    # 使用者页只调用已有的申请 / 释放接口，强制回收不在这个页面里
+    use_src = js[js.index("申请 UKey（使用者视图）"):js.index("// ------------------------------------------------------------------ 代理")]
+    assert "force-release" not in use_src
